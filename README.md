@@ -27,7 +27,7 @@ faktisk udviklet i den anden form.
 ### Vej A — Lokal udvikling (kræver Python)
 
 ```bash
-git clone https://github.com/<din-org>/fjernvarme-businesscase.git
+git clone https://github.com/skj-1964/fjernvarme-businesscase.git
 cd fjernvarme-businesscase
 python -m venv .venv
 source .venv/bin/activate            # Windows: .venv\Scripts\activate
