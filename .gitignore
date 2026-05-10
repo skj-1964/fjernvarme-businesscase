@@ -1,0 +1,60 @@
+# ==============================================================================
+# .gitignore for fjernvarme-businesscase
+# ==============================================================================
+
+# --- Python --------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Virtuelle miljøer ---------------------------------------------------------
+.venv/
+venv/
+env/
+ENV/
+.python-version
+
+# --- IDE / editor --------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# --- Modelresultater og cache (regenererbare) ----------------------------------
+# Resultater fra kørsler — genskabes ved at køre run_case.py
+output/
+*.png
+!doc/figures/*.png
+
+# Cachet markedsdata — hentes automatisk fra Energinet/DMI ved første kørsel
+data/raw/
+data/processed/
+
+# --- Lokale brugerfiler --------------------------------------------------------
+# Hvis I har egne måledata I ikke vil dele
+data/local/
+data/private/
+*.local.yaml
+*.local.csv
+
+# --- Logfiler ------------------------------------------------------------------
+*.log
+logs/
+
+# --- Excel-temp ----------------------------------------------------------------
+~$*.xlsx
+~$*.xlsm
+~$*.docx
+
+# --- Solver-artefakter ---------------------------------------------------------
+*.lp
+*.mps
+*.sol
+HiGHS.log

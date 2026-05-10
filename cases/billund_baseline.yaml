@@ -1,0 +1,368 @@
+# ==============================================================================
+# BILLUND VARMEVÆRK — BASELINE KONFIGURATION
+# ==============================================================================
+# Denne konfig indeholder Billunds fulde anlægsportefølje.
+# Brug `enabled: true/false` på hver enhed/lager til at vælge scenarie:
+#
+#   Aktuel topologi (2024-2025):   overskudsvarme=false (default)
+#   Post-2026 topologi:            overskudsvarme=true, evt. halmkedel=false
+#   "Uden tank" baseline:          tank_eksisterende=false
+#   "Kun VP og spidskedler":       alt biomasse=false
+#
+# Unit commitment (MILP, trin 3) styres via `uc_enabled: true/false` per enhed.
+# Default: false → LP-behandling (trin 1 oprindelig adfærd).
+#
+# Antagelser markeret med [TBC] skal afklares med Billund eller
+# Energistyrelsens Teknologikatalog før endelig business case.
+# ==============================================================================
+
+meta:
+  case_name: "billund_baseline"
+  description: "Billund anlæg — enable/disable styres per enhed"
+  timezone_internal: "UTC"
+  timezone_reporting: "Europe/Copenhagen"
+  discount_rate_real: 0.035          # 3,5% realt, typisk for fjernvarmeselskaber
+  tax_year: 2024                      # elafgift/tarifregime
+
+# ------------------------------------------------------------------------------
+# TIDSHORISONT
+# ------------------------------------------------------------------------------
+time:
+  start: "2024-01-01T00:00:00Z"
+  end:   "2024-12-31T23:00:00Z"
+  resolution: "1h"                    # 15min kommer i trin 4 (balancemarkeder)
+
+# ------------------------------------------------------------------------------
+# VARMELAST-SYNTESE (dual-slope v2, kalibreret session 10)
+# ------------------------------------------------------------------------------
+# OLS-fit mod Billund ab værk 2025-03-01 → 2026-02-28 (12 måneders måledata).
+# R² = 0.933, hourly RMSE = 2.31 MW, total bias = +0.7 GWh (+0.5% på 127.5 GWh).
+#
+# Struktur:
+#   Q(t) = baseline(h) + β_gaf · max(0, T_ref − EMA(T_out))
+#                      + β_net · max(0, T_net − T_out)
+#
+# Parametre regenereres med scripts/calibrate_heat_load.py hvis nye måledata
+# eller alternativ analyse-periode ønskes. Override CLI: --heat-params PATH
+# ------------------------------------------------------------------------------
+heat_load_params:
+  gaf_mw_per_k: 0.9761
+  t_ref: 15.0
+  thermal_inertia_hours: 24
+  nettab_slope_mw_per_k: 0.6081
+  t_net: 12.0
+  baseline_profile_mw:
+    [5.66, 5.74, 5.87, 6.08, 6.15, 6.52,   # 00-05
+     7.13, 7.15, 6.83, 6.32, 6.09, 5.99,   # 06-11
+     5.82, 5.70, 5.63, 5.56, 5.65, 5.87,   # 12-17
+     6.03, 6.08, 6.04, 6.03, 5.88, 5.60]   # 18-23
+  weekly_dip: 0.02
+  _source: "OLS mod Billund ab værk 2025-03-01 → 2026-02-28 (dual-slope v2)"
+  _fit_r2: 0.9332
+  _fit_rmse_mw: 2.306
+
+# ------------------------------------------------------------------------------
+# PRISER (brændsel og CO2)
+# ------------------------------------------------------------------------------
+# Alle priser i DKK/MWh af brændslets energiindhold (nedre brændværdi).
+# Ved kørsel af model: fuel_cost_per_MWh_heat = fuel_price / efficiency
+prices:
+  natural_gas:
+    value: 400.0                      # [TBC] 2024-niveau ca. 300-500 kr/MWh
+    unit: "DKK/MWh_fuel"
+  straw:
+    value: 275.0                      # [TBC] halm varierer 250-450 kr/MWh
+    unit: "DKK/MWh_fuel"
+  waste_heat:
+    value: 50.0                       # [TBC] overskudsvarme — afhænger helt af leverandørkontrakt
+    unit: "DKK/MWh_fuel"              # Modelleres som brændselspris
+  co2_eua:
+    value: 600.0                      # [TBC] 80 EUR/tCO2 × 7,45 DKK/EUR
+    unit: "DKK/MWh_gas"               # Kun på naturgas; biomasse = CO2-neutralt
+
+# ------------------------------------------------------------------------------
+# ELMARKED OG TARIFFER
+# ------------------------------------------------------------------------------
+electricity:
+  spot_area: "DK1"
+  # Tariffer og afgifter lægges oveni spotpris for elforbrugende enheder,
+  # og trækkes fra spotpris for elproducerende enheder (undgåede tariffer).
+  #
+  # Elvarmeafgift med reduceret sats for fjernvarme-VP/elkedel:
+  #   elafgift ≈ 0,4 øre/kWh = 4 DKK/MWh  [TBC: aktuelt niveau 2024]
+  #
+  # Nettarif (DK1): Timetarif model, typisk 20-200 DKK/MWh afhængigt af tid.
+  # For nu: flat approximation. Udvides til time-af-dag profil i trin 2.
+  tariff_consumption_flat: 80.0       # [TBC] DKK/MWh el forbrugt
+  tariff_production_flat: 5.0         # [TBC] DKK/MWh el produceret (lav)
+  electricity_tax: 4.0                # [TBC] DKK/MWh el forbrugt (reduceret sats)
+
+# ------------------------------------------------------------------------------
+# PRODUKTIONSENHEDER
+# ------------------------------------------------------------------------------
+# Konventioner:
+#   - p_max_heat  [MW_varme]:      maksimal varmeproduktion
+#   - p_min_heat  [MW_varme]:      min-last (0 hvis enheden kan slukkes frit)
+#                                   → bruges som MIN-LAST når uc_enabled=true
+#   - alpha:                        el-til-varme-ratio
+#                                     +value: producerer el per MWh varme (gasmotor)
+#                                      0:     neutral (biomasse/gaskedel)
+#                                     -value: forbruger el per MWh varme (VP, elkedel)
+#   - eta_fuel_to_heat:             brændselsvirkningsgrad (kun for brændselsenheder)
+#   - var_om:                       variabel drift og vedligehold [DKK/MWh_varme]
+#
+# Unit commitment-felter (kun aktive når uc_enabled: true):
+#   - start_cost       [DKK]:       engangsomkostning per start
+#   - min_uptime       [timer]:     min antal timer enheden skal være on efter start
+#   - min_downtime     [timer]:     min antal timer efter stop
+#   - initial_status   [0/1]:       starttilstand ved t=0
+#
+# For VP: alpha = -1/COP (fx COP 3 → alpha = -0,333)
+# For elkedel: alpha = -1/eta_el (fx 0,99 → alpha = -1,010)
+
+units:
+
+  # ---- Varmepumpe luft/vand (2025) ----
+  vp_luft_vand:
+    enabled: true
+    type: "heat_pump"
+    p_max_heat: 16.0
+    p_min_heat: 0.0                   # Bekræftet: kan slukkes frit
+    alpha: -0.333                     # Fallback (COP=3). Bruges kun hvis cop_curve
+                                      # ikke er sat. Ignoreres når cop_curve findes.
+    fuel: "electricity"
+    var_om: 40.0                      # [TBC] typisk 30-50 DKK/MWh_varme
+    start_cost: 0.0
+    min_uptime: 1
+    min_downtime: 1
+    uc_enabled: false                  # LP-behandling; VP er fuldt fleksibel
+    # ------ COP(T_ambient) ---------------------------------------------------
+    # Lineær approksimation af luft/vand-VP'ens COP som funktion af udetemp.
+    # Når sat, overruler denne kurve den konstante `alpha` ovenfor.
+    #
+    # Formel: COP = clip(a + b·T_out,  cop_min, cop_max)
+    #
+    # Default-værdier er kalibreret mod branchens rule-of-thumb for moderne
+    # luft/vand-anlæg. VALIDERES MOD LEVERANDØRENS DATABLAD:
+    #   - Bitzer/Johnson/Sabroe leverer typisk COP-kurver som funktion af
+    #     kondensator- og fordamper-temperatur. Her simplificeres til
+    #     udetemperatur alene (retur-temp antaget konstant).
+    #   - Tjek driftsdata: beregn COP_observed = P_heat / P_el og reg mod T_out
+    #     for at få empirisk a og b.
+    # ---------------------------------------------------------------------
+    cop_curve:                        # [TBC] — valideres mod VP-datablad
+      type: linear
+      a: 2.2                          # COP ved T_out = 0°C
+      b: 0.08                         # d(COP)/dT  — typisk 0,06-0,10
+      cop_min: 1.8                    # Safety floor (defrost-regime)
+      cop_max: 4.0                    # Safety ceiling (fysisk max for luft/vand)
+      # Ved disse parametre:
+      #   T=-5°C → COP=1.8 (floor aktiv), T=10°C → COP=3.0, T=25°C → COP=4.0 (ceiling aktiv)
+    ancillary:
+      afrr_qualified: true            # Bekræftet 23-apr-2026 (Billund)
+      mfrr_qualified: true            # Bekræftet 23-apr-2026 (Billund)
+      fcr_qualified: false
+      # Max-bud pr. marked fra Billund 24-apr-2026: 2,65 MW på både aFRR og
+      # mFRR. 2,65 MW af 16 MW fysisk = 17% — langt under pris-taker-tærskel
+      # på begge markeder (~3% af aFRR, ~0,4% af mFRR).
+      # Fortolkning: per-marked grænse (ikke kombineret), så VP kan byde
+      # 2,65 aFRR + 2,65 mFRR samtidigt. Fælles footroom-constraint i
+      # balancing-modulet sikrer fysisk leverbarhed hvis begge aktiveres.
+      afrr_max_bid_mw: 2.65           # Bekræftet 24-apr-2026 (Billund)
+      mfrr_max_bid_mw: 2.65           # Bekræftet 24-apr-2026 (Billund)
+    commissioned: 2025
+    notes: "Dominerende grundlastenhed. 7x4 trinregulering = effektivt trinløs."
+
+  # ---- Elkedel ny (2025) ----
+  elkedel_ny:
+    enabled: true
+    type: "electric_boiler"
+    p_max_heat: 30.0
+    p_min_heat: 0.0
+    alpha: -1.010                     # eta_el ≈ 0,99
+    fuel: "electricity"
+    var_om: 14.5                      # [TBC] tippet 0,5 lavere end elkedel_gl
+                                      # så dispatch-rangfølge er deterministisk
+                                      # (fysisk: nyere enhed har mindre slid)
+    start_cost: 0.0
+    min_uptime: 1
+    min_downtime: 1
+    uc_enabled: false
+    ancillary:
+      afrr_qualified: true            # Bekræftet 23-apr-2026 (Billund)
+      mfrr_qualified: true            # Bekræftet 23-apr-2026 (Billund)
+      fcr_qualified: false
+      # Per-enhed-max-bud IKKE sat — elkedel_ny indgår i 'elkedler'-gruppen
+      # (se ancillary_groups nederst), som giver 6 MW samlet loft sammen
+      # med elkedel_gl per marked. Billund 24-apr-2026.
+    commissioned: 2025
+
+  # ---- Elkedel gammel (2020/2021) ----
+  elkedel_gl:
+    enabled: true
+    type: "electric_boiler"
+    p_max_heat: 15.0
+    p_min_heat: 0.0
+    alpha: -1.010
+    fuel: "electricity"
+    var_om: 15.0                      # [TBC]
+    start_cost: 0.0
+    min_uptime: 1
+    min_downtime: 1
+    uc_enabled: false
+    ancillary:
+      afrr_qualified: true            # Bekræftet 23-apr-2026 (Billund)
+      mfrr_qualified: true            # Bekræftet 23-apr-2026 (Billund)
+      fcr_qualified: false
+      # Per-enhed-max-bud IKKE sat — elkedel_gl indgår i 'elkedler'-gruppen
+      # (se ancillary_groups nederst), som giver 6 MW samlet loft sammen
+      # med elkedel_ny per marked. Billund 24-apr-2026.
+    commissioned: 2021
+
+  # ---- Halmkedel (2015) — UC AKTIVERET ----
+  halmkedel:
+    enabled: true
+    type: "biomass_boiler"
+    p_max_heat: 12.0
+    p_min_heat: 3.0                   # [TBC] typisk 25-30% min-last for halmfyring
+    alpha: 0.0
+    fuel: "straw"
+    eta_fuel_to_heat: 0.90            # [TBC] Teknologikataloget typisk 88-92%
+    var_om: 50.0                      # [TBC] inkl. askehåndtering
+    start_cost: 8000.0                # [TBC] halmfyring dyr at starte
+    min_uptime: 12                    # [TBC]
+    min_downtime: 6                   # [TBC]
+    uc_enabled: true                  # MILP-behandling aktiveret
+    initial_status: 1                 # on ved årsstart (historisk mønster)
+    ancillary: {afrr_qualified: false, mfrr_qualified: false, fcr_qualified: false}
+    commissioned: 2015
+
+  # ---- Gasmotor (2000, konsolideret session 10) ----
+  # Billund bekræftede 23-apr-2026: kun én gasmotor tilbage i 2026 med 2,8 MW
+  # varme. Tidligere 2×1,6 MW (session 2-9) er nu én enhed. Alpha er uændret
+  # fra session 2's antagelse: 2,3/3,2 = 0,72 el/varme ratio.
+  # UC-parametre er på plads men deaktiveret. Aktivér når halm-UC er valideret.
+  gasmotor:
+    enabled: true
+    type: "gas_engine_chp"
+    p_max_heat: 2.8                   # Bekræftet 23-apr-2026 (én motor tilbage)
+    p_min_heat: 0.9                   # [TBC] ~33% min-last, skaleret fra 2×1,6-setup
+    alpha: 0.72                       # 2,3/3,2 fra original setup — antages uændret
+    fuel: "natural_gas"
+    eta_fuel_to_heat: 0.49            # [TBC] antager total eta ~85%, el-andel 0,72 → varmedel 0,49
+    var_om: 60.0                      # [TBC]
+    start_cost: 2000.0                # [TBC]
+    min_uptime: 2
+    min_downtime: 2
+    uc_enabled: false                  # Aktivér når halm-UC virker
+    initial_status: 0
+    co2_emissions_per_mwh_fuel: 0.2   # t CO2 / MWh naturgas
+    ancillary:
+      afrr_qualified: true            # Bekræftet 23-apr-2026 (Billund)
+      mfrr_qualified: true            # Bekræftet 23-apr-2026 (Billund)
+      fcr_qualified: false
+      # Gasmotor er el-producerende — aktiverer først når balancing-modulet
+      # udvides til at håndtere op-regulering via øget el-produktion. Værdi
+      # er forberedt (session 12 trin A+B); træder først i kraft senere.
+      afrr_max_bid_mw: 1.0            # [TBC] aftales med Billund
+      mfrr_max_bid_mw: 2.0            # [TBC] aftales med Billund
+    commissioned: 2000
+
+  # ---- Gaskedler (aggregeret — 26,3 MW fordelt på flere enheder, spids/reserve) ----
+  # Billund bekræftede 23-apr-2026 26,3 MW samlet gaskedel-kapacitet (10 +
+  # 7,1 + 9,2 på hhv. Rugmarken, Møllevej, Højmarksvej). Justeret fra v1's
+  # 28,6 MW. Påvirker ikke businesscasen eftersom gaskedlerne typisk
+  # dispatcher 0-1,4 GWh/år og ikke er bindende.
+  # I trin 1 slås de sammen til én aggregeret enhed. Kan splittes ud i trin 2.
+  gaskedel_agg:
+    enabled: true
+    type: "gas_boiler"
+    p_max_heat: 26.3                  # Bekræftet 23-apr-2026 (Billund)
+    p_min_heat: 0.0                   # kan slukkes
+    alpha: 0.0
+    fuel: "natural_gas"
+    eta_fuel_to_heat: 0.95            # [TBC] moderne 95-98%, gamle måske 90%
+    var_om: 20.0                      # [TBC]
+    start_cost: 500.0
+    min_uptime: 1
+    min_downtime: 1
+    uc_enabled: false
+    co2_emissions_per_mwh_fuel: 0.2
+    ancillary: {afrr_qualified: false, mfrr_qualified: false, fcr_qualified: false}
+    notes: "Samlet aggregat. Deles op i trin 2 hvis relevant."
+
+  # ---- Overskudsvarme (2026) ----
+  # Default: deaktiveret — aktivér når kontraktvilkår er kendte,
+  # eller når vi kører post-2026-scenarie.
+  # STATUS 23-apr-2026: Billund nævnte ikke overskudsvarmen i seneste
+  # anlægsopgørelse. Skal afklares separat om den stadig er planlagt.
+  overskudsvarme:
+    enabled: false                    # Skift til true for post-2026-case
+    type: "waste_heat"
+    p_max_heat: 4.0
+    p_min_heat: 4.0                   # [TBC] Sandsynligvis must-run pga. leverandørkontrakt
+    alpha: 0.0
+    fuel: "waste_heat"
+    eta_fuel_to_heat: 1.0             # Defineres per MWh leveret varme
+    var_om: 5.0                       # [TBC]
+    start_cost: 0.0
+    min_uptime: 1
+    min_downtime: 1
+    uc_enabled: false
+    ancillary: {afrr_qualified: false, mfrr_qualified: false, fcr_qualified: false}
+    commissioned: 2026
+    notes: "[AFKLARES] Leverandør, pris, kontraktvilkår (must-run?), temperaturniveau. Billunds opgørelse 23-apr-2026 nævner ikke denne — bekræft om stadig planlagt."
+
+# ------------------------------------------------------------------------------
+# VARMELAGRE
+# ------------------------------------------------------------------------------
+# Bekræftet 23-apr-2026: 2 × 2.000 m³ + 1 × 10.000 m³ = 14.000 m³ total
+# I trin 1 modelleres som én aggregeret tank. Kan splittes til tre
+# individuelle tanke i senere trin hvis operationel forskel vurderes
+# væsentlig (usandsynligt — de er hydraulisk koblede).
+storage:
+
+  tank_eksisterende:
+    enabled: true
+    volume_m3: 14000                  # Bekræftet 23-apr-2026 (2×2.000 + 1×10.000)
+    delta_t_k: 45.0                   # [TBC] frem/retur — afklares med Billund
+    # Energikapacitet beregnes automatisk:
+    #   E_max = V × rho × c_p × ΔT = 14000 × 1000 × 4.186 × 45 / 3600 MWh ≈ 732 MWh
+    e_max_mwh: null                   # null → beregnes fra volume + delta_t
+    e_initial_mwh: 366                # Start halvfuld (vilkårligt; cyklusbinding fikser)
+    p_max_charge_mw: 25.0             # [TBC] typisk 1,5-2,5 × daglig gns. last
+    p_max_discharge_mw: 25.0          # [TBC]
+    self_discharge_per_hour: 0.0005   # 0,05%/t → ~90% over 10 dage [TBC, afhænger af isolering]
+    cycle_binding: true               # e_final == e_initial
+    notes: "Stor tank. Ved 730 MWh er arbitragehovedmarkedet allerede delvist fanget."
+
+# ------------------------------------------------------------------------------
+# ANCILLARY-GRUPPER (session 12 — gruppe-max-bud-constraints)
+# ------------------------------------------------------------------------------
+# Anvendes når operatøren prækvalificerer en samlet kapacitet for flere
+# enheder som én pulje (fx Billunds to elkedler som én 6 MW pulje).
+# Gruppe-constraint tilføjes UDOVER eventuelle per-enhed-grænser; solveren
+# bruger den strammere binding.
+#
+# Fortolkning: per-marked grænse, dvs. aFRR og mFRR har hver sin pulje.
+# Samme enheder kan byde samtidigt i begge markeder. Fælles footroom-
+# constraint i balancing.py sikrer fysisk leverbarhed ved samtidig aktivering.
+#
+# Hvis en enhed er listet i en gruppe men ikke kvalificeret/enabled i et
+# bestemt marked, ignoreres den stiltiende for det marked.
+ancillary_groups:
+
+  elkedler:
+    units: [elkedel_ny, elkedel_gl]
+    # Billund 24-apr-2026: 6 MW samlet max-bud for de to elkedler tilsammen,
+    # på både aFRR og mFRR. Samlet elkedel-kapacitet er 45 MW fysisk → 13%
+    # prækvalificeret. På aFRR udgør dette ~6% af marked (~100 MW); på mFRR
+    # ~1% af marked (~597 MW). Begge langt under pris-taker-tærskel.
+    afrr_max_bid_mw: 6.0              # Bekræftet 24-apr-2026 (Billund)
+    mfrr_max_bid_mw: 6.0              # Bekræftet 24-apr-2026 (Billund)
+
+# ------------------------------------------------------------------------------
+# INVESTERING (til case-konfig, ikke baseline)
+# ------------------------------------------------------------------------------
+investment:
+  enabled: false                      # Baseline = ingen ny investering

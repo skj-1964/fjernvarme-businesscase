@@ -1,0 +1,33 @@
+heat_load_params_v2_single:
+  gaf_mw_per_k: 1.5627
+  t_ref: 14.0
+  thermal_inertia_hours: 18
+  baseline_profile_mw:
+  - 5.656
+  - 5.739
+  - 5.867
+  - 6.08
+  - 6.151
+  - 6.519
+  - 7.134
+  - 7.146
+  - 6.831
+  - 6.32
+  - 6.087
+  - 5.989
+  - 5.817
+  - 5.701
+  - 5.63
+  - 5.562
+  - 5.655
+  - 5.868
+  - 6.028
+  - 6.078
+  - 6.039
+  - 6.032
+  - 5.88
+  - 5.602
+  weekly_dip: 0.02
+  _source: OLS mod Billund ab værk 2025-2026
+  _fit_r2: 0.9229
+  _fit_rmse: 2.477
