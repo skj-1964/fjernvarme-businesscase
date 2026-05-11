@@ -52,10 +52,8 @@ typiske udviklingsmønstre.
 
 ### Vej B — Claude i skyen (kræver ingen installation)
 
-1. Hent koden som ZIP via *Code → Download ZIP* på GitHub-siden
-2. Opret et nyt **Project** på [claude.ai](https://claude.ai)
-3. Upload alle filer fra ZIP'en til projektets *knowledge*
-4. Stil dit første spørgsmål — fx *"Kan du forklare hvad scenarie C i rapporten
+1. Bed Claude om at hente modellen fra https://github.com/skj-1964/fjernvarme-businesscase.git
+2. Stil dit første spørgsmål — fx *"Kan du forklare hvad scenarie C i rapporten
    viser?"* eller *"Vis mig hvordan jeg kører modellen med en gaspris på 500"*
 
 Claude kan både læse modellen, køre den (med Code Execution), forklare resultater,

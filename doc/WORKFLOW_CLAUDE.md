@@ -10,25 +10,11 @@ væsentligt højere brugsgrænser og adgang til Code Execution).
 
 ## Hurtig opsætning
 
-1. **Hent koden som ZIP**. På GitHub-siden: tryk det grønne *"Code"*-knap →
-   *"Download ZIP"*. Pak ud lokalt — typisk i `Documents/`.
+1  Bed Claude om at hente modellen fra https://github.com/skj-1964/fjernvarme-businesscase.git
 
-2. **Opret et nyt Project i Claude.ai**. Gå til [claude.ai](https://claude.ai),
-   tryk *"+ New Project"*, giv det et navn som *"Driftsoptimering — &lt;jeres
-   værk&gt;"*. Et Project er en samtalesamling der deler en fælles
-   "knowledge base".
-
-3. **Upload alle filer fra ZIP'en til projektets knowledge.** Træk og slip
-   hele mappen ind i *Project knowledge*-feltet. Claude får så modellen,
-   konfigurationen, rapporten og data tilgængelige i hver ny chat i
-   projektet.
-
-4. **Slå Code Execution til** under chat-indstillingerne. Det giver Claude
-   adgang til en isoleret Python-sandbox hvor modellen kan køres.
-
-5. **Stil dit første spørgsmål.** Eksempler:
-   - *"Kan du give mig et resumé af hvad denne model gør, baseret på rapporten?"*
-   - *"Kør baseline-scenariet C for et par måneder og vis mig resultatet."*
+2. **Stil dit første spørgsmål.** Eksempler:
+   - *"Kan du give mig et resumé af hvad denne model gør"*
+   - *"Kør baseline-scenariet for et par måneder og vis mig resultatet."*
    - *"Hvad sker der hvis halmprisen stiger til 400 DKK/MWh?"*
 
 ## Hvad Claude kan gøre i denne form
