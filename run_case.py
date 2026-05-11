@@ -65,6 +65,11 @@ from src.data_loader import (
     load_heat_load_params,
     HeatLoadParams,
 )
+from src.data_loader_github import (
+    DEFAULT_DF_DATA_URL,
+    DEFAULT_DF_DATA_CACHE,
+    load_external_data_github,
+)
 from src.model import build_model
 from src.solve import solve_and_extract
 from src.reporting import (
@@ -101,6 +106,19 @@ def _parse_args():
                    help="Mappe til cachede API-svar (Parquet)")
     p.add_argument("--force-refresh", action="store_true",
                    help="Ignorér cache og hent fra API påny")
+
+    # Datakilde for --external — vælg API (Energinet/DMI direkte) eller
+    # GitHub-cache (df-data repo). Default er API for bagudkompatibilitet.
+    # --data-source github impliserer --external.
+    p.add_argument("--data-source", choices=["api", "github"], default="api",
+                   help="Hvor henter --external data fra? 'api' = Energinet/DMI "
+                        "direkte (default). 'github' = df-data-repo (sandkasse-"
+                        "venligt; kræver github.com adgang). 'github' impliserer "
+                        "--external.")
+    p.add_argument("--df-data-url", default=DEFAULT_DF_DATA_URL,
+                   help=f"Git-URL til df-data-repo (default: {DEFAULT_DF_DATA_URL})")
+    p.add_argument("--df-data-cache", default=DEFAULT_DF_DATA_CACHE,
+                   help=f"Lokal sti til df-data-klon (default: {DEFAULT_DF_DATA_CACHE})")
 
     # Årstal / periode — overrider cfg.time.start/end
     # --year og (--start + --end) er mutuelt eksklusive. Argparse's
@@ -185,7 +203,7 @@ def _build_output_stem(args, cfg) -> str:
 
     # Datakilde
     if args.external:
-        parts.append("ext")
+        parts.append("gh" if args.data_source == "github" else "ext")
     elif args.data_path is not None:
         parts.append("file")
     else:
@@ -243,7 +261,11 @@ def _load_data(args, cfg):
     """Vælg datakilde baseret på flags."""
     if args.external:
         heat_load = load_heat_load_params(args.case, override_yaml=args.heat_params)
-        print(f"Henter ekstern data (DMI area={args.dmi_area}, spot={args.price_zone})...")
+        if args.data_source == "github":
+            print(f"Henter data fra df-data ({args.df_data_url})...")
+        else:
+            print(f"Henter ekstern data (DMI area={args.dmi_area}, "
+                  f"spot={args.price_zone})...")
         source = args.heat_params if args.heat_params else args.case
         print(f"  Heat-load params (fra {Path(source).name}):")
         print(f"    β_gaf = {heat_load.gaf_mw_per_k:.4f} MW/K   "
@@ -257,6 +279,21 @@ def _load_data(args, cfg):
         print(f"    baseline_profile_mw: gns {heat_load.baseline_profile_mw.mean():.2f} "
               f"MW, min {heat_load.baseline_profile_mw.min():.2f}, "
               f"max {heat_load.baseline_profile_mw.max():.2f}")
+
+        if args.data_source == "github":
+            return load_external_data_github(
+                cfg,
+                heat_load=heat_load,
+                dmi_area=args.dmi_area,
+                dmi_temp_shortname=args.dmi_temp_shortname,
+                price_zone=args.price_zone,
+                eur_dkk=args.eur_dkk,
+                with_balancing=args.with_balancing,
+                repo_url=args.df_data_url,
+                cache_dir=args.df_data_cache,
+                force_refresh=args.force_refresh,
+            )
+
         return load_external_data(
             cfg,
             heat_load=heat_load,
@@ -369,6 +406,11 @@ def main():
     args = _parse_args()
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    # --data-source github impliserer --external (vi har ingen mening om
+    # at læse df-data uden synthesize-pipelinen aktiv).
+    if args.data_source == "github" and not args.external:
+        args.external = True
 
     print(f"Indlæser case: {args.case}")
     cfg = load_case(args.case, overrides=args.set_overrides)
