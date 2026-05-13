@@ -32,6 +32,16 @@ Heat-load parametre (kun relevante med --external):
     --heat-params PATH   — valgfri YAML-fil der overrider case-filens
                           heat_load_params-sektion. Brug fx en alternativ
                           kalibrering fra scripts/calibrate_heat_load.py.
+    --heat-csv PATH      — suspender syntese, brug ekstern CSV med målt
+                          varmebehov. Anvendes typisk i valideringskørsler
+                          mod EnergyPRO eller anden ekstern reference,
+                          så syntese-forskelle elimineres som
+                          afvigelseskilde. Eksempel:
+                            python run_case.py cases/billund_baseline.yaml \\
+                                --external \\
+                                --heat-csv data/billund_abvaerk_hourly.csv
+    --heat-csv-column COL  — kolonnenavn (default: heat_mw_abvaerk)
+    --heat-csv-tz TZ     — tidszone for CSV-tidsstempler (default: UTC)
 
 Generisk YAML-override (kan gentages):
     --set dotted.path=value   — overskriver vilkårlig leaf-værdi i YAML'en
@@ -143,6 +153,23 @@ def _parse_args():
                    help="Sti til alternativ heat_load_params YAML (override "
                         "case-filens heat_load_params-sektion)")
 
+    # Heat-CSV override — suspenderer syntese og bruger ekstern CSV som
+    # varmelast-input. Anvendes typisk i valideringskørsler (fx EnergyPRO-
+    # backtest) hvor begge modeller skal have identisk varmebehov, så
+    # syntese-forskelle elimineres som afvigelseskilde. heat_load_params
+    # parses stadig fra YAML men ignoreres når --heat-csv er sat.
+    p.add_argument("--heat-csv", type=Path, default=None,
+                   help="Sti til CSV med målt varmebehov i MW. Suspenderer "
+                        "den syntetiske varmelast og bruger CSV'en direkte. "
+                        "Kun gyldig med --external (eller --data-source github).")
+    p.add_argument("--heat-csv-column", default="heat_mw_abvaerk",
+                   help="Kolonnenavn i --heat-csv med varme i MW "
+                        "(default: heat_mw_abvaerk)")
+    p.add_argument("--heat-csv-tz", default="UTC",
+                   help="Tidszone for tidsstempler i --heat-csv. Default 'UTC' "
+                        "matcher modellens interne format. Brug fx "
+                        "'Europe/Copenhagen' hvis CSV har lokal tid med DST.")
+
     # Solver og output
     p.add_argument("--solver", type=str, default="highs")
     p.add_argument("--days", type=int, default=7,
@@ -229,6 +256,10 @@ def _build_output_stem(args, cfg) -> str:
     if args.with_balancing:
         parts.append("bal")
 
+    # Heat-CSV-markør (suspenderet syntese)
+    if args.heat_csv is not None:
+        parts.append("heatcsv")
+
     # Overrides — alfabetisk sorteret for determinisme
     overrides = []
     for name in sorted(args.enable):
@@ -280,6 +311,10 @@ def _load_data(args, cfg):
               f"MW, min {heat_load.baseline_profile_mw.min():.2f}, "
               f"max {heat_load.baseline_profile_mw.max():.2f}")
 
+        if args.heat_csv is not None:
+            print(f"  Heat-CSV override AKTIV — syntese suspenderes:")
+            print(f"    fil={args.heat_csv}  kolonne={args.heat_csv_column}  tz={args.heat_csv_tz}")
+
         if args.data_source == "github":
             return load_external_data_github(
                 cfg,
@@ -292,6 +327,9 @@ def _load_data(args, cfg):
                 repo_url=args.df_data_url,
                 cache_dir=args.df_data_cache,
                 force_refresh=args.force_refresh,
+                heat_csv=args.heat_csv,
+                heat_csv_column=args.heat_csv_column,
+                heat_csv_tz=args.heat_csv_tz,
             )
 
         return load_external_data(
@@ -304,6 +342,9 @@ def _load_data(args, cfg):
             cache_dir=args.cache_dir,
             force_refresh=args.force_refresh,
             with_balancing=args.with_balancing,
+            heat_csv=args.heat_csv,
+            heat_csv_column=args.heat_csv_column,
+            heat_csv_tz=args.heat_csv_tz,
         )
 
     if args.data_path is not None:
@@ -379,20 +420,25 @@ def _apply_enable_disable(cfg, enable, disable):
 
 
 def _print_data_summary(data):
+    import numpy as np
     print(f"  {len(data.time)} timesteps  "
           f"[{data.time.values[0]} → {data.time.values[-1]}]")
     print(f"  Varmelast: min={float(data.heat_demand.min()):.1f}, "
           f"gns={float(data.heat_demand.mean()):.1f}, "
           f"max={float(data.heat_demand.max()):.1f} MW  "
           f"(årssum {float(data.heat_demand.sum())/1000:.1f} GWh)")
-    # Dekomponering, hvis vi kører --external
+    # Dekomponering — kun hvis syntese faktisk er kørt (ikke ved --heat-csv)
     if "heat_gaf" in data.data_vars:
-        print(f"    GAF (rumvarme):      {float(data.heat_gaf.sum())/1000:5.1f} GWh "
-              f"(gns {float(data.heat_gaf.mean()):.2f} MW)")
-        print(f"    Baseline (guf-navn): {float(data.heat_guf.sum())/1000:5.1f} GWh "
-              f"(gns {float(data.heat_guf.mean()):.2f} MW)")
-        print(f"    Nettab-tillæg:       {float(data.heat_nettab.sum())/1000:5.1f} GWh "
-              f"(gns {float(data.heat_nettab.mean()):.2f} MW)")
+        if bool(np.isnan(data.heat_gaf.values).all()):
+            src = data.attrs.get("heat_load_source", "external")
+            print(f"    Dekomponering (gaf/guf/nettab): suspenderet (kilde: {src})")
+        else:
+            print(f"    GAF (rumvarme):      {float(data.heat_gaf.sum())/1000:5.1f} GWh "
+                  f"(gns {float(data.heat_gaf.mean()):.2f} MW)")
+            print(f"    Baseline (guf-navn): {float(data.heat_guf.sum())/1000:5.1f} GWh "
+                  f"(gns {float(data.heat_guf.mean()):.2f} MW)")
+            print(f"    Nettab-tillæg:       {float(data.heat_nettab.sum())/1000:5.1f} GWh "
+                  f"(gns {float(data.heat_nettab.mean()):.2f} MW)")
     print(f"  Spot:      min={float(data.spot_price.min()):.0f}, "
           f"gns={float(data.spot_price.mean()):.0f}, "
           f"max={float(data.spot_price.max()):.0f} DKK/MWh")
@@ -411,6 +457,17 @@ def main():
     # at læse df-data uden synthesize-pipelinen aktiv).
     if args.data_source == "github" and not args.external:
         args.external = True
+
+    # --heat-csv kræver --external (eller github, der impliserer external).
+    # Med --dummy er der ingen syntese at suspendere; med --data-path er
+    # heat-data allerede ekstern.
+    if args.heat_csv is not None and not args.external:
+        raise ValueError(
+            "--heat-csv kræver --external (eller --data-source github). "
+            "Med --dummy er der ingen syntese at suspendere."
+        )
+    if args.heat_csv is not None and not args.heat_csv.exists():
+        raise FileNotFoundError(f"--heat-csv: filen findes ikke: {args.heat_csv}")
 
     print(f"Indlæser case: {args.case}")
     cfg = load_case(args.case, overrides=args.set_overrides)

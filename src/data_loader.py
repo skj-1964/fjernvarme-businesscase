@@ -623,6 +623,139 @@ def load_heat_load_params(
 
 
 # ------------------------------------------------------------------------------
+# Override: ekstern varmebehov-CSV (suspenderer syntese)
+# ------------------------------------------------------------------------------
+
+def apply_heat_csv_override(
+    ds: xr.Dataset,
+    csv_path: str | Path,
+    *,
+    column: str = "heat_mw_abvaerk",
+    tz: str = "UTC",
+    timestamp_col: Optional[str] = None,
+) -> xr.Dataset:
+    """Erstat heat_demand i datasættet med målte værdier fra ekstern CSV.
+
+    Suspenderer den syntetiske varmelast-modellering. ``heat_gaf``,
+    ``heat_guf`` og ``heat_nettab`` sættes til NaN — dekomponeringen
+    giver ikke mening når kilden er målt data.
+
+    Anvendelse i fx EnergyPRO-backtest hvor varmelast-syntese skal
+    neutraliseres, så begge modeller får identisk varmebehov-input.
+
+    Args:
+        ds: Datasæt med ``time``-koordinat (tz-naive, UTC-internt).
+        csv_path: Sti til CSV med målte varmebehov i MW.
+        column: Kolonnenavn i CSV med varme i MW.
+        tz: Tidszone for tidsstempler i CSV. Default ``"UTC"`` (matcher
+            modellens interne format). Sæt fx ``"Europe/Copenhagen"``
+            hvis CSV'en indeholder lokal tid med DST-spring.
+        timestamp_col: Kolonnenavn for tidsstempler. Hvis None forsøges
+            "timestamp", "time", "datetime", "hour_utc", "hour_dk" i den
+            rækkefølge.
+
+    Returns:
+        Modificeret datasæt med ``heat_demand`` fra CSV og opdaterede
+        attrs der dokumenterer kilden.
+
+    Raises:
+        FileNotFoundError: Hvis CSV-filen ikke findes.
+        ValueError: Hvis kolonner mangler, der er negative værdier,
+            eller >5% af modeltidsindekset ikke er dækket af CSV'en.
+    """
+    csv_path = Path(csv_path)
+    if not csv_path.exists():
+        raise FileNotFoundError(f"Heat-CSV ikke fundet: {csv_path}")
+
+    df = pd.read_csv(csv_path)
+
+    # Auto-detect tidsstempel-kolonne hvis ikke angivet
+    if timestamp_col is None:
+        for cand in ("timestamp", "time", "datetime", "hour_utc", "hour_dk"):
+            if cand in df.columns:
+                timestamp_col = cand
+                break
+        else:
+            raise ValueError(
+                f"Heat-CSV {csv_path.name} mangler tidsstempel-kolonne. "
+                f"Tilgængelige: {list(df.columns)}. Angiv eksplicit via "
+                f"timestamp_col."
+            )
+
+    if column not in df.columns:
+        raise ValueError(
+            f"Heat-CSV mangler kolonnen {column!r}. "
+            f"Tilgængelige: {list(df.columns)}"
+        )
+
+    # Parse tidsstempler — strip evt. eksisterende tz, så vi har en
+    # konsistent baseline før konvertering
+    df[timestamp_col] = pd.to_datetime(df[timestamp_col])
+    if df[timestamp_col].dt.tz is not None:
+        df[timestamp_col] = df[timestamp_col].dt.tz_convert("UTC").dt.tz_localize(None)
+    elif tz != "UTC":
+        # Tidszone angivet og input er tz-naivt → tolk som lokal tid
+        df[timestamp_col] = (
+            df[timestamp_col]
+              .dt.tz_localize(tz, ambiguous="infer", nonexistent="shift_forward")
+              .dt.tz_convert("UTC")
+              .dt.tz_localize(None)
+        )
+
+    df = df.set_index(timestamp_col).sort_index()
+    # Håndtér evt. duplikater (fx fra DST fall-back i lokal tid)
+    df = df[~df.index.duplicated(keep="first")]
+
+    # Validér ikke-negative
+    if (df[column] < 0).any():
+        n_neg = int((df[column] < 0).sum())
+        raise ValueError(
+            f"Heat-CSV indeholder {n_neg} negative værdier i {column!r}. "
+            f"Tjek datakilden."
+        )
+
+    # Reindex til modellens tidsakse
+    model_idx = pd.DatetimeIndex(ds.time.values)
+    series = df[column].reindex(model_idx)
+    n_missing = int(series.isna().sum())
+    if n_missing > 0:
+        coverage = (1 - n_missing / len(model_idx)) * 100
+        if n_missing > len(model_idx) * 0.05:
+            raise ValueError(
+                f"Heat-CSV mangler {n_missing}/{len(model_idx)} timer "
+                f"({coverage:.1f}% dækning). For periode "
+                f"{model_idx.min()} → {model_idx.max()} skal CSV'en dække "
+                f"hele intervallet. Tjek tidsstempler og tidszone (--heat-csv-tz)."
+            )
+        # Mindre huller — interpoler lineært
+        series = series.interpolate(method="linear").ffill().bfill()
+        print(f"  Heat-CSV: {n_missing} huller udfyldt ved interpolation "
+              f"(dækning {coverage:.2f}%)")
+
+    # Anvend override
+    ds = ds.copy()
+    ds["heat_demand"] = (
+        ("time",), series.values,
+        {"units": "MW", "source": f"external_csv:{csv_path.name}"},
+    )
+    nan_vals = np.full(len(model_idx), np.nan)
+    for varname in ("heat_gaf", "heat_guf", "heat_nettab"):
+        if varname in ds.data_vars:
+            ds[varname] = (
+                ("time",), nan_vals,
+                {"units": "MW", "note": "blanked when external heat CSV used"},
+            )
+
+    # Opdater attrs så det er sporbart i output
+    ds.attrs["heat_load_source"] = f"external_csv:{csv_path}"
+    ds.attrs["heat_load_csv_column"] = column
+    ds.attrs["heat_load_csv_tz"] = tz
+    ds.attrs["heat_load_synthesis_suspended"] = "true"
+
+    return ds
+
+
+# ------------------------------------------------------------------------------
 # Orkestrator: rigtig temperatur + spot + syntetisk varmelast
 # ------------------------------------------------------------------------------
 
@@ -637,6 +770,9 @@ def load_external_data(
     cache_dir: str | Path = "data/raw",
     force_refresh: bool = False,
     with_balancing: bool = False,
+    heat_csv: Optional[str | Path] = None,
+    heat_csv_column: str = "heat_mw_abvaerk",
+    heat_csv_tz: str = "UTC",
 ) -> xr.Dataset:
     """
     Byg et halvrealistisk datasæt med rigtig DMI-temperatur og DK1-spot,
@@ -712,6 +848,13 @@ def load_external_data(
             target_index=pd.DatetimeIndex(ds.time.values),
         )
         ds = xr.merge([ds, bal])
+
+    # Heat-CSV-override (suspenderer syntese). Anvendes til sidst så det
+    # virker uafhængigt af om with_balancing er aktivt.
+    if heat_csv is not None:
+        ds = apply_heat_csv_override(
+            ds, heat_csv, column=heat_csv_column, tz=heat_csv_tz,
+        )
 
     return ds
 

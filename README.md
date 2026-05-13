@@ -126,6 +126,30 @@ Pilotrapportens §10 og bilag C beskriver fremgangsmåden i detaljer.
 
 ---
 
+## Brug målt varmebehov direkte (uden syntese)
+
+Normalt syntetiserer modellen varmebehovet ud fra DMI-temperatur og en
+kalibreret dual-slope-formel (se `heat_load_params_v2.yaml`). Hvis du
+har time-opløste ab-værk-målinger og vil bruge dem direkte — fx i en
+**valideringskørsel mod en ekstern model** (EnergyPRO eller lignende),
+eller hvis dit værk endnu ikke har en kalibreret syntese — kan
+`--heat-csv` suspendere syntesen helt:
+
+```bash
+python run_case.py cases/billund_baseline.yaml --data-source github \
+    --start 2025-07-01 --end 2025-12-31 \
+    --heat-csv data/billund_abvaerk_hourly.csv
+```
+
+CSV-formatet er minimalt: en tidsstempel-kolonne (`timestamp`, `time`,
+`datetime` eller `hour_utc` — auto-detekteres) og en MW-kolonne
+(default `heat_mw_abvaerk`, overrides med `--heat-csv-column NAVN`).
+Tidsstempler tolkes som UTC; brug `--heat-csv-tz "Europe/Copenhagen"`
+hvis din CSV er i lokal tid med DST-spring. Mindre huller i datakilden
+(< 5% af perioden) interpoleres lineært og rapporteres.
+
+---
+
 ## Friske data — automatisk månedlig opdatering
 
 `df-data` opdateres månedligt af et cron-job hos Dansk Fjernvarme: spot-,

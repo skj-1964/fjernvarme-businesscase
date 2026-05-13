@@ -44,6 +44,7 @@ from .config import CaseConfig
 from .data_loader import (
     DEFAULT_EUR_DKK,
     HeatLoadParams,
+    apply_heat_csv_override,
     make_time_index,
     synthesize_heat_load,
 )
@@ -381,6 +382,9 @@ def load_external_data_github(
     repo_url: str = DEFAULT_DF_DATA_URL,
     cache_dir: str | Path = DEFAULT_DF_DATA_CACHE,
     force_refresh: bool = False,
+    heat_csv: Optional[str | Path] = None,
+    heat_csv_column: str = "heat_mw_abvaerk",
+    heat_csv_tz: str = "UTC",
 ) -> xr.Dataset:
     """
     Spejl af `load_external_data` der læser fra df-data GitHub-repo.
@@ -451,5 +455,12 @@ def load_external_data_github(
             target_index=pd.DatetimeIndex(ds.time.values),
         )
         ds = xr.merge([ds, bal])
+
+    # Heat-CSV-override (suspenderer syntese) — samme adfærd som
+    # load_external_data, anvendt efter balancing-merge.
+    if heat_csv is not None:
+        ds = apply_heat_csv_override(
+            ds, heat_csv, column=heat_csv_column, tz=heat_csv_tz,
+        )
 
     return ds
