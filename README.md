@@ -100,6 +100,7 @@ fjernvarme-businesscase/
 │   ├── balancing.py        # aFRR + mFRR
 │   ├── unit_commitment.py  # halmens min-uptime
 │   └── reporting.py        # KPI'er og plots
+├── scripts/                # hjælpescripts (rekalibrering m.m.)
 ├── data/                   # billund_abvaerk_hourly.csv (måledata)
 ├── doc/                    # rapport, figurer, workflow-guides
 ├── run_case.py             # CLI
@@ -119,34 +120,62 @@ Begge mapper er gitignored og hentes/regenereres automatisk.
 1. Kopiér `cases/billund_baseline.yaml` til `cases/<dit_værk>_baseline.yaml`
 2. Erstat enheder, kapaciteter, virkningsgrader og priser med dine egne
 3. Erstat `data/billund_abvaerk_hourly.csv` med din egen ab-værk-måling
-4. Re-kalibrér `heat_load_params_v2.yaml` mod din måling (Claude kan hjælpe)
+4. Rekalibrér varmebehovs-syntesen mod din måling — se næste afsnit
 5. Kør `run_case.py` og tjek at dispatch-mønsteret ligner virkeligheden
 
 Pilotrapportens §10 og bilag C beskriver fremgangsmåden i detaljer.
 
 ---
 
-## Brug målt varmebehov direkte (uden syntese)
+## Rekalibrér varmebehovs-syntesen
 
-Normalt syntetiserer modellen varmebehovet ud fra DMI-temperatur og en
-kalibreret dual-slope-formel (se `heat_load_params_v2.yaml`). Hvis du
-har time-opløste ab-værk-målinger og vil bruge dem direkte — fx i en
-**valideringskørsel mod en ekstern model** (EnergyPRO eller lignende),
-eller hvis dit værk endnu ikke har en kalibreret syntese — kan
-`--heat-csv` suspendere syntesen helt:
+`scripts/calibrate_heat_load.py` genfitter `HeatLoadParams` ved OLS mod
+målt varmeproduktion og en valgt DMI-vejrstation. Output er en YAML-fil i
+samme format som `cases/heat_load_params_*.yaml` der kan bruges direkte
+med `run_case.py --heat-params`.
+
+**Standardkørsel** (fyn-temperatur, termisk inerti 48h — anbefalet default):
 
 ```bash
-python run_case.py cases/billund_baseline.yaml --data-source github \
-    --start 2025-07-01 --end 2025-12-31 \
-    --heat-csv data/billund_abvaerk_hourly.csv
+python scripts/calibrate_heat_load.py \
+    --dmi-area fyn \
+    --thermal-inertia 48 \
+    --output cases/heat_load_params_v3_fyn_ti48.yaml
 ```
 
-CSV-formatet er minimalt: en tidsstempel-kolonne (`timestamp`, `time`,
-`datetime` eller `hour_utc` — auto-detekteres) og en MW-kolonne
-(default `heat_mw_abvaerk`, overrides med `--heat-csv-column NAVN`).
-Tidsstempler tolkes som UTC; brug `--heat-csv-tz "Europe/Copenhagen"`
-hvis din CSV er i lokal tid med DST-spring. Mindre huller i datakilden
-(< 5% af perioden) interpoleres lineært og rapporteres.
+**Med dit eget værks data**:
+
+```bash
+python scripts/calibrate_heat_load.py \
+    --measured data/<dit_værk>_hourly.csv \
+    --measured-col heat_mw_total \
+    --dmi-area fyn \
+    --output cases/heat_load_params_<dit_værk>.yaml
+```
+
+**Grid-search over termisk inerti** hvis du er usikker på den rette EMA-bredde:
+
+```bash
+python scripts/calibrate_heat_load.py \
+    --dmi-area karup \
+    --thermal-inertia-grid 24,36,48,72,96 \
+    --output cases/heat_load_params_<dit_værk>_optimal.yaml
+```
+
+Scriptet vælger automatisk den TI der maksimerer R².
+
+**Brug resultatet** i en model-kørsel:
+
+```bash
+python run_case.py cases/<dit_værk>_baseline.yaml --data-source github \
+    --heat-params cases/heat_load_params_<dit_værk>.yaml \
+    --start 2025-04-01 --end 2026-03-31
+```
+
+YAML-output indeholder fit-statistik (`_fit_r2`, `_fit_rmse`,
+`_n_observations`) samt kilde og dato, så det er sporbart hvilken
+kalibrering en given kørsel bygger på. Kør `python scripts/calibrate_heat_load.py --help`
+for fulde CLI-flag.
 
 ---
 

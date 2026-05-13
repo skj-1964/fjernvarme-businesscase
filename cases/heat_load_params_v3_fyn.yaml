@@ -1,0 +1,37 @@
+heat_load_params_v3_fyn:
+  gaf_mw_per_k: 0.8541
+  t_ref: 14.45
+  thermal_inertia_hours: 24
+  nettab_slope_mw_per_k: 0.6984
+  t_net: 14.4
+  baseline_profile_mw:
+  - 4.253
+  - 4.338
+  - 4.402
+  - 4.539
+  - 4.939
+  - 5.451
+  - 6.73
+  - 6.828
+  - 6.592
+  - 6.154
+  - 6.079
+  - 5.93
+  - 5.693
+  - 5.557
+  - 5.605
+  - 5.745
+  - 5.967
+  - 6.14
+  - 6.239
+  - 6.223
+  - 5.93
+  - 5.559
+  - 4.946
+  - 4.434
+  weekly_dip: 0.02
+  _source: OLS mod ab-værk 2025-02-28 → 2026-02-28 (fyn-temp, refit)
+  _calibrated: 2026-05-13 session 18
+  _fit_r2: 0.9377
+  _fit_rmse: 2.235
+  _n_observations: 8753
