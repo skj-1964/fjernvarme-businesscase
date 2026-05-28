@@ -255,6 +255,15 @@ class CaseConfig:
     storage: dict[str, Storage]
     ancillary_groups: dict[str, AncillaryGroup] = field(default_factory=dict)
     investment_enabled: bool = False
+    # Fælles reserve-loft [MW elektrisk] der gælder summen af ALLE bydende
+    # enheders bud på TVÆRS af aFRR + mFRR, per time:
+    #     Σ_i (r_afrr[i,t] + r_mfrr[i,t]) ≤ shared_reserve_cap_mw   ∀t
+    # Repræsenterer Billunds faktiske prækvalificering (14 MW frit fordelt
+    # mellem aFRR og mFRR — session 19 §4.2). Når sat, ERSTATTER den de
+    # separate per-enhed (Ancillary.*_max_bid_mw) og per-gruppe
+    # (AncillaryGroup) lofter; disse springes over i balancing.py.
+    # None = gammel adfærd (per-enhed/per-gruppe lofter håndhæves).
+    shared_reserve_cap_mw: Optional[float] = None
 
 
 # ------------------------------------------------------------------------------
@@ -432,4 +441,5 @@ def load_case(
         storage=storages,
         ancillary_groups=groups,
         investment_enabled=raw.get("investment", {}).get("enabled", False),
+        shared_reserve_cap_mw=raw.get("balancing", {}).get("shared_reserve_cap_mw"),
     )

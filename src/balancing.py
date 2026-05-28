@@ -182,10 +182,16 @@ def _add_market_reserves(
     eligible: list[Unit],
     data: xr.Dataset,
     el_cost_per_mwh: xr.DataArray,
+    apply_max_bid: bool = True,
 ) -> dict:
     """Byg reserve-variable og -udtryk for ét marked (aFRR eller mFRR).
 
     Footroom-constraint bygges IKKE her (fælles for alle markeder i caller).
+
+    apply_max_bid: når False springes per-enheds-max-bud-constraints over.
+        Bruges når et fælles reserve-loft (cfg.shared_reserve_cap_mw) er aktivt
+        og erstatter de separate per-enhed/per-gruppe lofter. Den fysiske
+        upper-bound (p_el_max) på variablen bevares uanset.
 
     Returnerer dict med:
       var_by_unit          {unit_name: lp.Variable}
@@ -231,8 +237,9 @@ def _add_market_reserves(
         # Max-bud per enhed og marked (trin A for aFRR, trin B for mFRR).
         # Navngiven constraint for diagnostik; solveren bruger den strammere
         # binding (p_el_max som upper-bound vs max_bid som constraint).
+        # Springes over når et fælles reserve-loft erstatter per-enheds-lofterne.
         max_bid = getattr(unit.ancillary, market.max_bid_attr)
-        if max_bid is not None:
+        if apply_max_bid and max_bid is not None:
             max_bid = float(max_bid)
             if max_bid > p_el_max:
                 print(
@@ -380,6 +387,51 @@ def _add_group_constraints(
 
 
 # ---------------------------------------------------------------------------
+# Fælles reserve-loft — ét loft over begge markeder og alle bydende enheder
+# ---------------------------------------------------------------------------
+
+def _add_shared_cap_constraint(
+    m: lp.Model,
+    cap_mw: float,
+    afrr_vars: dict,
+    mfrr_vars: dict,
+) -> None:
+    """Ét fælles reserve-loft på summen af ALLE bud, per time:
+
+        Σ_i (r_afrr[i,t] + r_mfrr[i,t]) ≤ cap_mw    ∀t
+
+    Repræsenterer en samlet prækvalificeret reservekapacitet (Billund: 14 MW
+    frit fordelt mellem aFRR og mFRR — session 19 §4.2). Erstatter de separate
+    per-enhed (Ancillary.*_max_bid_mw) og per-gruppe (AncillaryGroup) lofter,
+    som caller derfor springer over når dette loft er aktivt.
+
+    VIGTIGT: dette er ÉT loft på den samlede sum — ikke cap_mw på hvert marked.
+    Modellen kan altså frit fordele de 14 MW mellem aFRR og mFRR, men summen
+    over begge markeder og alle enheder må ikke overstige cap_mw i nogen time.
+
+    Footroom-bindingen (produktion ≥ COP · samlet bud per enhed) tilføjes
+    separat i _add_footroom_constraints og bevares uændret.
+    """
+    all_vars = list(afrr_vars.values()) + list(mfrr_vars.values())
+    if not all_vars:
+        return
+
+    total = all_vars[0]
+    for v in all_vars[1:]:
+        total = total + v
+
+    m.add_constraints(total <= float(cap_mw), name="shared_reserve_cap")
+
+    n_afrr = len(afrr_vars)
+    n_mfrr = len(mfrr_vars)
+    print(
+        f"  Fælles reserve-loft: Σ(aFRR+mFRR) ≤ {cap_mw:.1f} MW per time "
+        f"({n_afrr} aFRR-bud + {n_mfrr} mFRR-bud, frit fordelt). "
+        f"Per-enheds/-gruppe-lofter er sprunget over."
+    )
+
+
+# ---------------------------------------------------------------------------
 # Hovedfunktion — tilføjer reserver til modellen
 # ---------------------------------------------------------------------------
 
@@ -431,6 +483,12 @@ def add_balancing_reserves(
     per_market_results: dict[str, Optional[dict]] = {}
     any_eligible = False
 
+    # Fælles reserve-loft (Billunds prækvalificering). Når sat erstatter det
+    # de separate per-enhed/per-gruppe lofter: per-enheds-max-bud springes over
+    # i _add_market_reserves, og gruppe-constraints springes over her i caller.
+    shared_cap = getattr(cfg, "shared_reserve_cap_mw", None)
+    apply_max_bid = shared_cap is None
+
     for market, available in ((_AFRR, afrr_available), (_MFRR, mfrr_available)):
         if not available:
             per_market_results[market.label] = None
@@ -447,12 +505,14 @@ def add_balancing_reserves(
         )
         per_market_results[market.label] = _add_market_reserves(
             m, market, eligible, data, el_cost_per_mwh,
+            apply_max_bid=apply_max_bid,
         )
-        # Gruppe-constraints per marked (hvis cfg.ancillary_groups har
-        # værdier sat for dette marked)
-        _add_group_constraints(
-            m, cfg, market, per_market_results[market.label]["var_by_unit"],
-        )
+        # Gruppe-constraints per marked (kun når INTET fælles loft er sat —
+        # det fælles loft erstatter gruppe-lofterne).
+        if shared_cap is None:
+            _add_group_constraints(
+                m, cfg, market, per_market_results[market.label]["var_by_unit"],
+            )
 
     if not any_eligible:
         return None
@@ -465,6 +525,11 @@ def add_balancing_reserves(
 
     # Fælles footroom — bindes på sum af alle bud per enhed
     _add_footroom_constraints(m, cfg, data, heat_prod, afrr_vars, mfrr_vars)
+
+    # Fælles reserve-loft på summen over begge markeder (hvis sat) — tilføjes
+    # EFTER footroom, så begge bindinger gælder samtidigt.
+    if shared_cap is not None:
+        _add_shared_cap_constraint(m, shared_cap, afrr_vars, mfrr_vars)
 
     # Totale udtryk (summer over aktive markeder)
     total_capacity = 0
