@@ -23,12 +23,17 @@
 # ==============================================================================
 
 meta:
-  case_name: "billund_energypro_backtest_H2_2025"
+  case_name: "billund_energypro_backtest_H2_2025_fase2"
   description: >
-    Fase 1 backtest mod Billunds EnergyPRO-model. H2 2025 (1. juli - 31. dec).
-    Harmoniseret tank (tabsfri, intet MW-loft, ΔT=40 K). Naturgas all-in
-    inkl. afgifter. NOx+metan bagt ind i unit-specifik var_om. Halmpris
-    300 DKK/MWh (EnergyPRO-fil har 935, sandsynligvis mislabeled NOx).
+    Fase 2 backtest — balance slået til. H2 2025 (1. juli - 31. dec).
+    Som Fase 1, men med aFRR+mFRR-reserver aktiveret og ét fælles 14 MW-loft
+    (Billunds faktiske prækvalificering, frit fordelt mellem aFRR og mFRR —
+    session 19 §4.2). Halmpris 232 DKK/MWh-fuel (935 DKK/ton ÷ 4,03, session 19).
+    Sammenlignes mod billund_balance_facit_H2_2025_*.csv pr. produkt.
+    KØRES MED --with-balancing (se nederst).
+    FORBEHOLD: elafgift = 4 DKK/MWh (notat-antagelse). Afregningens Tariffer-
+    fane viste ~45,6 DKK/MWh — afklares med Steen. Override: --set
+    electricity.electricity_tax=45.6
   timezone_internal: "UTC"
   timezone_reporting: "Europe/Copenhagen"
   discount_rate_real: 0.035
@@ -61,30 +66,6 @@ heat_load_params:
      5.82, 5.70, 5.63, 5.56, 5.65, 5.87,
      6.03, 6.08, 6.04, 6.03, 5.88, 5.60]
   weekly_dip: 0.02
-
-  # === Nettab-model (NY: to-led fysisk model, session 21) ===
-  # nettab_MW(t) = a · (T_pipe(t) − T_jord(t)) + c · load_MW(t)
-  # Koefficienterne a og c afledes af de typiske værksværdier nedenfor.
-  # Erstatter den hidtidige nettab_slope_mw_per_k/t_net-tilgang når
-  # src/nettab.py er integreret. Se notat_nettab_metode_billund.md.
-  nettab:
-    # KRÆVET — angiv ÉN af de to:
-    aarligt_nettab_pct: 0.146       # Billund realiseret 2025 = 14,6%
-    # aarligt_nettab_mwh: 17875     # alternativt direkte i MWh
-
-    sommer:                         # KRÆVET — typisk juli-august
-      t_frem: 64                    # °C, kundeside (Billund jul 2025)
-      t_retur: 41                   # °C
-      t_ude: 16                     # valgfri, default 16
-
-    vinter:                         # KRÆVET — typisk januar-februar
-      t_frem: 71                    # °C, kundeside (Billund feb 2026)
-      t_retur: 41
-      t_ude: 1                      # valgfri, default 1
-
-    konduktiv_andel: 0.75           # valgfri, default 0,75 (Billund-fit 0,77)
-    t_jord_avg: 9.0                 # valgfri, default 9,0
-    t_jord_amp: 4.0                 # valgfri, default 4,0
   _source: "Kalibreret mod Billund ab værk 2025-03 → 2026-02 — ignoreres ved --heat-csv"
 
 # ------------------------------------------------------------------------------
@@ -108,9 +89,9 @@ prices:
       _note: "NOx/metan tilføjes i var_om pr. enhed (forskellige satser for kedel vs motor)"
 
   straw:
-    value: 300.0                      # Steens beslutning (Billund verificerer)
+    value: 232.0                      # 935 DKK/ton ÷ 4,03 MWh-fuel/ton (14,5 GJ/ton) — session 19 §2
     unit: "DKK/MWh_fuel"
-    _note: "EnergyPRO-fil har 935 DKK/MWh under 'NOx afgift' label — sandsynligvis mislabeled halmpris. Verificeres med Billund."
+    _note: "935 i EnergyPRO-filen var DKK/ton (ikke mislabeled NOx). John bekræfter halmprisen er ok. Eksakt match afhænger af EnergyPRO's GJ/ton."
 
   waste_heat:
     value: 50.0                       # uændret (overskudsvarme disabled)
@@ -323,8 +304,26 @@ storage:
     notes: "Harmoniseret med EnergyPRO Reference (notat v4 §5.5). Tabsfri og uden MW-loft for at matche EP. Flag som fejl i EnergyPRO-arbejdsgangen."
 
 # ------------------------------------------------------------------------------
-# ANCILLARY-GRUPPER (bruges i Fase 2 — uændret fra baseline)
+# BALANCEMARKED — fælles reserve-loft (Fase 2)
 # ------------------------------------------------------------------------------
+# Billund er prækvalificeret med ÉT fælles loft på 14 MW, frit fordelt mellem
+# aFRR og mFRR (session 19 §4.2 — Johns realiserede tal). Når dette er sat,
+# ERSTATTER det de separate per-enhed (units.*.ancillary.*_max_bid_mw) og
+# per-gruppe (ancillary_groups) lofter — balancing.py springer dem over.
+# Det gamle effektive aFRR-loft var 8,65 MW (VP 2,65 + elkedler 6,0) og var
+# for snævert: det efterlod penge på bordet og fordelte aFRR/mFRR forkert.
+#
+# VIGTIGT: ét loft på SUMMEN — Σ_i (r_aFRR[i,t] + r_mFRR[i,t]) ≤ 14 per time.
+# IKKE 14 MW på hvert marked. Footroom-bindingen bevares.
+balancing:
+  shared_reserve_cap_mw: 14.0
+
+# ------------------------------------------------------------------------------
+# ANCILLARY-GRUPPER — INAKTIVE i Fase 2 (afløst af fælles 14 MW-loft ovenfor)
+# ------------------------------------------------------------------------------
+# Beholdt for dokumentation/bagudkompatibilitet. balancing.py springer disse
+# over når shared_reserve_cap_mw er sat. Det samme gælder per-enheds-lofterne
+# (vp_luft_vand.ancillary.afrr_max_bid_mw=2.65 osv.).
 ancillary_groups:
   elkedler:
     units: [elkedel_ny, elkedel_gl]

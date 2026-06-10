@@ -97,6 +97,7 @@ fjernvarme-businesscase/
 ├── src/                    # model, dataloader, balancing, reporting
 │   ├── model.py            # MILP-formulering
 │   ├── data_loader.py      # Energinet- og DMI-API'er
+│   ├── nettab.py           # to-led fysisk nettab-model (session 21)
 │   ├── balancing.py        # aFRR + mFRR
 │   ├── unit_commitment.py  # halmens min-uptime
 │   └── reporting.py        # KPI'er og plots
@@ -108,6 +109,7 @@ fjernvarme-businesscase/
 ```
 
 Når du kører modellen oprettes der automatisk:
+
 - `data/raw/` — cache af spot-, balance- og DMI-data (~30 MB)
 - `output/` — KPI'er, time-CSV'er, dispatch-plots
 
@@ -119,9 +121,12 @@ Begge mapper er gitignored og hentes/regenereres automatisk.
 
 1. Kopiér `cases/billund_baseline.yaml` til `cases/<dit_værk>_baseline.yaml`
 2. Erstat enheder, kapaciteter, virkningsgrader og priser med dine egne
-3. Erstat `data/billund_abvaerk_hourly.csv` med din egen ab-værk-måling
-4. Rekalibrér varmebehovs-syntesen mod din måling — se næste afsnit
-5. Kør `run_case.py` og tjek at dispatch-mønsteret ligner virkeligheden
+3. Opdater `heat_load_params.nettab`-blokken med jeres typiske værksværdier
+   (årligt nettab i % eller MWh, sommer- og vinter-temperaturforhold) — se
+   afsnittet **Nettab-model** længere nede.
+4. Erstat `data/billund_abvaerk_hourly.csv` med din egen ab-værk-måling
+5. Rekalibrér varmebehovs-syntesen mod din måling — se næste afsnit
+6. Kør `run_case.py` og tjek at dispatch-mønsteret ligner virkeligheden
 
 Pilotrapportens §10 og bilag C beskriver fremgangsmåden i detaljer.
 
@@ -176,6 +181,75 @@ YAML-output indeholder fit-statistik (`_fit_r2`, `_fit_rmse`,
 `_n_observations`) samt kilde og dato, så det er sporbart hvilken
 kalibrering en given kørsel bygger på. Kør `python scripts/calibrate_heat_load.py --help`
 for fulde CLI-flag.
+
+---
+
+## Nettab-model
+
+Modellen understøtter to nettab-formuleringer. Default er en
+**fysisk to-led model**, som aktiveres når YAML'en indeholder en
+`nettab:`-sektion under `heat_load_params`:
+
+```yaml
+heat_load_params:
+  # ... øvrige parametre ...
+  nettab:
+    aarligt_nettab_pct: 0.146      # eller: aarligt_nettab_mwh: 17875
+    sommer:
+      t_frem: 64                    # °C, kundeside (juli-august)
+      t_retur: 41
+      t_ude: 16                     # valgfri, default 16
+    vinter:
+      t_frem: 71                    # °C, kundeside (januar-februar)
+      t_retur: 41
+      t_ude: 1                      # valgfri, default 1
+    konduktiv_andel: 0.75           # valgfri, default 0,75 (Billund-fit 0,77)
+    t_jord_avg: 9.0                 # valgfri, default 9,0
+    t_jord_amp: 4.0                 # valgfri, default 4,0
+```
+
+Modellen udleder de fysiske koefficienter `a` (konduktivt led, isolations- og
+jordtab) og `c` (flow-led, konvektive tab i armaturer og substationer) ud fra
+disse typiske værksværdier. Formel: `nettab_MW(t) = a · (T_pipe(t) − T_jord(t))
+
++ c · load_MW(t)`. Se `src/nettab.py` for detaljer.
+
+### Dynamisk T_jord (valgfri, opt-in)
+
+Default beregner modellen T_jord som en statisk sæson-cosinus baseret på
+kalender-måneden. Det betyder at samme måned giver samme T_jord uanset år.
+For at få jordtemperaturen til at følge faktiske udetemperaturer (kolde
+januar-dage giver lavere T_jord end milde) kan du aktivere dynamisk mode:
+
+```yaml
+    t_jord_dynamic: true
+    t_jord_ema_days: 30             # tidskonstant, default 30 dage
+    t_jord_damping: 0.5             # default 0,5
+    t_jord_t_out_ref: 8.0           # klimanormal T_out, default 8,0 °C
+```
+
+T_jord beregnes da som `t_jord_avg + damping · (EMA(T_out, τ) − t_out_ref)`.
+Parametrene matcher fysisk diffusion ved ~1 m dybde i dansk jord. Årssummen
+af nettab er identisk i begge modes — kun fordelingen inden for året ændres.
+
+### A/B-sammenligning mod den gamle slope-baserede model
+
+Den gamle model (`β_net × max(0, T_net − T_out)`, et lineært led) kan stadig
+køres for sammenligning ved at tilføje `--legacy-nettab` til kommandolinjen:
+
+```bash
+# Ny fysisk model (default)
+python run_case.py cases/billund_baseline.yaml --data-source github --year 2025
+
+# Gammel slope-baseret model (samme YAML)
+python run_case.py cases/billund_baseline.yaml --data-source github --year 2025 \
+    --legacy-nettab
+```
+
+Output-filnavn får `__legnet`-markør, så A/B-kørsler ikke kolliderer. For
+Billund 2025 er den typiske dispatch-effekt en reduktion på ~10% i halmkedel
+og tilsvarende stigning i elkedel, fordi den nye model giver mere realistiske
+vinterspidser.
 
 ---
 

@@ -187,6 +187,13 @@ def _parse_args():
                         "Kræver at cfg.time dækker et post-PICASSO regime "
                         "(fra ca. april 2025 og frem).")
 
+    # Nettabsmodel (session 21)
+    p.add_argument("--legacy-nettab", action="store_true",
+                   help="Tving den gamle slope-baserede nettab-model "
+                        "(β_net · max(0, T_net − T_out)), selvom YAML har "
+                        "en nettab:-blok. Brugbart til A/B-sammenligning "
+                        "med den nye to-led fysiske model.")
+
     # Generisk YAML-override — kan gentages, anvendes på raw dict FØR
     # dataclass-construction så __post_init__ (fx Storage.e_max_mwh-
     # beregning) ser de overriddede værdier.
@@ -256,6 +263,10 @@ def _build_output_stem(args, cfg) -> str:
     if args.with_balancing:
         parts.append("bal")
 
+    # Legacy-nettab-markør (--legacy-nettab tilsidesætter nettab:-blok i YAML)
+    if args.legacy_nettab:
+        parts.append("legnet")
+
     # Heat-CSV-markør (suspenderet syntese)
     if args.heat_csv is not None:
         parts.append("heatcsv")
@@ -292,6 +303,11 @@ def _load_data(args, cfg):
     """Vælg datakilde baseret på flags."""
     if args.external:
         heat_load = load_heat_load_params(args.case, override_yaml=args.heat_params)
+        # --legacy-nettab: tving slope-baseret model selvom YAML har nettab:-blok
+        if args.legacy_nettab and heat_load.nettab_cfg is not None:
+            print("  --legacy-nettab AKTIV: nettab:-blok i YAML ignoreres, "
+                  "slope-baseret model bruges")
+            heat_load.nettab_cfg = None
         if args.data_source == "github":
             print(f"Henter data fra df-data ({args.df_data_url})...")
         else:
@@ -302,9 +318,19 @@ def _load_data(args, cfg):
         print(f"    β_gaf = {heat_load.gaf_mw_per_k:.4f} MW/K   "
               f"T_ref = {heat_load.t_ref:.1f}°C   "
               f"EMA = {heat_load.thermal_inertia_hours}h")
-        if heat_load.nettab_slope_mw_per_k > 0:
+        if heat_load.nettab_cfg is not None:
+            nc = heat_load.nettab_cfg
+            pct = nc.get("aarligt_nettab_pct")
+            mwh = nc.get("aarligt_nettab_mwh")
+            mål = f"{pct*100:.1f}%" if pct is not None else f"{mwh:,.0f} MWh"
+            ts = nc.get("sommer", {}); tv = nc.get("vinter", {})
+            print(f"    Nettab v3 (to-led fysisk model)   "
+                  f"år={mål}   "
+                  f"sommer={ts.get('t_frem','?')}/{ts.get('t_retur','?')}°C   "
+                  f"vinter={tv.get('t_frem','?')}/{tv.get('t_retur','?')}°C")
+        elif heat_load.nettab_slope_mw_per_k > 0:
             print(f"    β_net = {heat_load.nettab_slope_mw_per_k:.4f} MW/K   "
-                  f"T_net = {heat_load.t_net:.1f}°C   (dual-slope v2)")
+                  f"T_net = {heat_load.t_net:.1f}°C   (dual-slope v2 / legacy)")
         else:
             print(f"    (single-slope fallback — nettab_slope_mw_per_k = 0)")
         print(f"    baseline_profile_mw: gns {heat_load.baseline_profile_mw.mean():.2f} "

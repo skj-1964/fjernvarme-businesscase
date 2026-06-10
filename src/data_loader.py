@@ -507,6 +507,9 @@ class HeatLoadParams:
         default_factory=lambda: np.full(24, 6.0)
     )
     weekly_dip: float = 0.02
+    # NY (session 21): to-led fysisk nettab-model, valgfri. Når sat,
+    # erstatter den nettab_slope_mw_per_k/t_net-formlen i synthesize_heat_load.
+    nettab_cfg: Optional[dict] = None
 
     def __post_init__(self):
         """Sanity-tjek og type-coercion."""
@@ -530,6 +533,7 @@ class HeatLoadParams:
                 d.get("baseline_profile_mw", [6.0] * 24), dtype=float
             ),
             weekly_dip=float(d.get("weekly_dip", 0.02)),
+            nettab_cfg=d.get("nettab"),  # NY: to-led fysisk nettab-model
         )
 
     def to_serializable(self) -> dict:
@@ -542,6 +546,7 @@ class HeatLoadParams:
             "t_net": float(self.t_net),
             "baseline_profile_mw": self.baseline_profile_mw.tolist(),
             "weekly_dip": float(self.weekly_dip),
+            **({"nettab": dict(self.nettab_cfg)} if self.nettab_cfg else {}),
         }
 
 
@@ -575,8 +580,44 @@ def synthesize_heat_load(t_out: pd.Series, params: HeatLoadParams) -> pd.DataFra
         name="guf",  # navnet bibeholdt for bagudkompat.; semantik udvidet
     )
 
-    # --- Nettab-tillæg (dual-slope; slope=0 → falder tilbage til ingen tillæg) ---
-    if params.nettab_slope_mw_per_k > 0:
+    # --- Nettab-tillæg ---
+    # Prioritet:
+    #   1) nettab_cfg sat (NY session 21): to-led fysisk model
+    #      nettab_MW(t) = a·(T_pipe(t) − T_jord(t)) + c·load_MW(t)
+    #   2) nettab_slope_mw_per_k > 0: legacy dual-slope v2
+    #   3) ellers: ingen nettab-tillæg
+    if params.nettab_cfg is not None:
+        from .nettab import build_nettab_model, nettab_MW as _nettab_MW
+        # Brug gaf+baseline som load-proxy (uden nettab → undgår cirkularitet).
+        # Bias er <3% fordi c-koefficienten typisk er ~0,03.
+        load_proxy = gaf + baseline
+        # Skalér op til 8760h for korrekt pct→MWh på del-årlige kørsler
+        period_hours = max(1, len(idx))
+        load_proxy_annual = float(load_proxy.sum()) * 8760.0 / period_hours
+        # `aarligt_nettab_pct` fortolkes som nettab/total (Billund-konvention),
+        # hvor total = ab værk = load + nettab. Vi løser bagud:
+        #   pct = nettab/(load + nettab)  →  total = load / (1 − pct)
+        nc = params.nettab_cfg
+        if "aarligt_nettab_pct" in nc:
+            _pct = float(nc["aarligt_nettab_pct"])
+            annual_prod_mwh = load_proxy_annual / max(1e-6, 1.0 - _pct)
+        elif "aarligt_nettab_mwh" in nc:
+            annual_prod_mwh = load_proxy_annual + float(nc["aarligt_nettab_mwh"])
+        else:
+            annual_prod_mwh = load_proxy_annual
+        # T_jord beregnes inde i build (statisk cosinus eller dynamisk EMA
+        # afhængigt af t_jord_dynamic i YAML). Drive-integralet beregnes
+        # mod faktiske T_out, så a- og c-koefficienter er konsistente med
+        # evalueringen.
+        coef = build_nettab_model(
+            params.nettab_cfg,
+            annual_production_mwh=annual_prod_mwh,
+            t_out=t_out.values,
+            timestamps=idx,
+        )
+        nettab_arr = _nettab_MW(coef, t_out.values, load_proxy.values)
+        nettab = pd.Series(nettab_arr, index=idx, name="nettab")
+    elif params.nettab_slope_mw_per_k > 0:
         nettab = (
             params.nettab_slope_mw_per_k
             * (params.t_net - t_out).clip(lower=0.0)
@@ -598,26 +639,42 @@ def load_heat_load_params(
     override_yaml kan enten være skrevet på samme format, eller indeholde
     en wrapper-nøgle der starter med `heat_load_params` (fx `heat_load_params_v2_dual`
     som `scripts/calibrate_heat_load.py` genererer).
+
+    Nettab-merge-regel (session 21): hvis override-filen ikke indeholder
+    en `nettab:`-blok, men case YAML gør, så bringes case YAML's nettab
+    ind i den endelige HeatLoadParams. Det betyder at kalibrerings-output
+    fra `calibrate_heat_load.py` (som ikke ved noget om nettab) kan
+    bruges som `--heat-params`-override uden at miste case YAML's
+    driftskonfiguration.
     """
     import yaml
 
-    if override_yaml is not None:
-        raw = yaml.safe_load(Path(override_yaml).read_text())
-    else:
-        raw = yaml.safe_load(Path(case_yaml).read_text())
-
-    # Find heat_load_params-sektionen — accepter både direkte nøgle og
-    # wrappede varianter (heat_load_params_v2_dual, _single etc.)
-    if "heat_load_params" in raw:
-        section = raw["heat_load_params"]
-    else:
+    def _extract_section(raw: dict, source: str) -> dict:
+        if "heat_load_params" in raw:
+            return raw["heat_load_params"]
         candidates = [k for k in raw if k.startswith("heat_load_params")]
         if not candidates:
             raise ValueError(
-                f"heat_load_params mangler i {override_yaml or case_yaml}. "
+                f"heat_load_params mangler i {source}. "
                 "Kør scripts/calibrate_heat_load.py for at generere parametre."
             )
-        section = raw[candidates[0]]
+        return raw[candidates[0]]
+
+    if override_yaml is not None:
+        # Override-fil leverer kalibrerings-parametre (gaf, t_ref, baseline, …).
+        raw_override = yaml.safe_load(Path(override_yaml).read_text())
+        section = dict(_extract_section(raw_override, str(override_yaml)))
+
+        # Merge: nettab er driftskonfig (ikke kalibrerings-output), så hvis
+        # override ikke har den, hent fra case YAML.
+        if "nettab" not in section:
+            raw_case = yaml.safe_load(Path(case_yaml).read_text())
+            case_section = _extract_section(raw_case, str(case_yaml))
+            if "nettab" in case_section:
+                section["nettab"] = case_section["nettab"]
+    else:
+        raw = yaml.safe_load(Path(case_yaml).read_text())
+        section = _extract_section(raw, str(case_yaml))
 
     return HeatLoadParams.from_yaml_dict(section)
 

@@ -30,6 +30,7 @@ heat_load_params_v2_dual:
   - 5.88
   - 5.602
   weekly_dip: 0.02
+
   _source: OLS mod Billund ab værk 2025-2026
   _fit_r2: 0.9332
   _fit_rmse: 2.306

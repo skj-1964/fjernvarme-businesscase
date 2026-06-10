@@ -57,9 +57,41 @@ heat_load_params:
      5.82, 5.70, 5.63, 5.56, 5.65, 5.87,   # 12-17
      6.03, 6.08, 6.04, 6.03, 5.88, 5.60]   # 18-23
   weekly_dip: 0.02
+
+  # === Nettab-model (NY: to-led fysisk model, session 21) ===
+  # nettab_MW(t) = a · (T_pipe(t) − T_jord(t)) + c · load_MW(t)
+  # Koefficienterne a og c afledes af de typiske værksværdier nedenfor.
+  # Erstatter den hidtidige nettab_slope_mw_per_k/t_net-tilgang når
+  # src/nettab.py er integreret. Se notat_nettab_metode_billund.md.
+  nettab:
+    # KRÆVET — angiv ÉN af de to:
+    aarligt_nettab_pct: 0.146       # Billund realiseret 2025 = 14,6%
+    # aarligt_nettab_mwh: 17875     # alternativt direkte i MWh
+
+    sommer:                         # KRÆVET — typisk juli-august
+      t_frem: 64                    # °C, kundeside (Billund jul 2025)
+      t_retur: 41                   # °C
+      t_ude: 16                     # valgfri, default 16
+
+    vinter:                         # KRÆVET — typisk januar-februar
+      t_frem: 71                    # °C, kundeside (Billund feb 2026)
+      t_retur: 41
+      t_ude: 1                      # valgfri, default 1
+
+    konduktiv_andel: 0.75           # valgfri, default 0,75 (Billund-fit 0,77)
+    t_jord_avg: 9.0                 # valgfri, default 9,0
+    t_jord_amp: 4.0                 # valgfri, default 4,0 (ignoreres når t_jord_dynamic: true)
+
+    # Dynamisk T_jord — opt-in, baseret på EMA(T_out) i stedet for sæson-cosinus
+    t_jord_dynamic: true            # default false (= statisk månedscosinus)
+    t_jord_ema_days: 15             # tidskonstant, default 30 dage (~1 m dybde)
+    t_jord_damping: 0.5             # default 0,5 — hvor meget T_out-variation der når jordlaget
+    t_jord_t_out_ref: 8.0           # klimanormal T_out, default 8,0 °C (DK)
+
   _source: "OLS mod Billund ab værk 2025-03-01 → 2026-02-28 (dual-slope v2)"
   _fit_r2: 0.9332
   _fit_rmse_mw: 2.306
+
 
 # ------------------------------------------------------------------------------
 # PRISER (brændsel og CO2)

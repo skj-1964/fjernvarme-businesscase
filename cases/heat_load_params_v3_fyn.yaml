@@ -30,6 +30,7 @@ heat_load_params_v3_fyn:
   - 4.946
   - 4.434
   weekly_dip: 0.02
+
   _source: OLS mod ab-værk 2025-02-28 → 2026-02-28 (fyn-temp, refit)
   _calibrated: 2026-05-13 session 18
   _fit_r2: 0.9377

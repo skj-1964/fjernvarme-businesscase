@@ -30,6 +30,7 @@ heat_load_params_v3_fyn_ti48:
   - 4.837
   - 4.347
   weekly_dip: 0.02
+
   _source: OLS mod ab-værk 2025-02-28 → 2026-02-28 (fyn-temp, længere termisk inerti)
   _calibrated: 2026-05-13 session 18
   _fit_r2: 0.9421
