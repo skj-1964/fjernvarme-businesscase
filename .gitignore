@@ -36,6 +36,7 @@ output/
 # Cachet markedsdata — hentes automatisk fra Energinet/DMI ved første kørsel
 data/raw/
 data/processed/
+data/df-data
 
 # --- Lokale brugerfiler --------------------------------------------------------
 # Hvis I har egne måledata I ikke vil dele
