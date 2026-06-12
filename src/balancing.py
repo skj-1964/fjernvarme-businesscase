@@ -98,6 +98,11 @@ class _MarketSpec:
     qualified_attr: str
     max_bid_attr: str
     label: str
+    # Nye serier til activation_value-metoden (forudberegnet i datalaget):
+    #   av_key:    DKK pr. reserveret MW pr. time (kovarians-korrekt indtægt)
+    #   clear_key: andel af timen hvor buddet clearer [0,1] (varmeside-α)
+    act_value_key: str = ""
+    clear_fraction_key: str = ""
 
 
 _AFRR = _MarketSpec(
@@ -108,6 +113,8 @@ _AFRR = _MarketSpec(
     qualified_attr="afrr_qualified",
     max_bid_attr="afrr_max_bid_mw",
     label="aFRR",
+    act_value_key="afrr_activation_value_up",
+    clear_fraction_key="afrr_clear_fraction_up",
 )
 
 _MFRR = _MarketSpec(
@@ -118,6 +125,8 @@ _MFRR = _MarketSpec(
     qualified_attr="mfrr_qualified",
     max_bid_attr="mfrr_max_bid_mw",
     label="mFRR",
+    act_value_key="mfrr_activation_value_up",
+    clear_fraction_key="mfrr_clear_fraction_up",
 )
 
 MARKETS: tuple[_MarketSpec, ...] = (_AFRR, _MFRR)
@@ -183,6 +192,7 @@ def _add_market_reserves(
     data: xr.Dataset,
     el_cost_per_mwh: xr.DataArray,
     apply_max_bid: bool = True,
+    method: str = "legacy",
 ) -> dict:
     """Byg reserve-variable og -udtryk for ét marked (aFRR eller mFRR).
 
@@ -205,6 +215,11 @@ def _add_market_reserves(
     price_cap = data[market.cap_price_key]       # DKK/MW/h
     alpha = _get_or_zero(data, market.alpha_key, price_cap)       # [0,1]
     price_act = _get_or_zero(data, market.act_price_key, price_cap)  # DKK/MWh
+
+    # Activation_value-serier (forudberegnet i datalaget, kun brugt når
+    # method == 'activation_value'). Nul-fallback hvis ikke til stede.
+    av = _get_or_zero(data, market.act_value_key, price_cap)              # DKK/MW/h
+    clear_frac = _get_or_zero(data, market.clear_fraction_key, price_cap)  # [0,1]
 
     # Diagnostik — pr. marked
     alpha_mean = float(alpha.mean()) if hasattr(alpha, "mean") else 0.0
@@ -259,18 +274,21 @@ def _add_market_reserves(
         # Kapacitetsindtægt [DKK]
         capacity_revenue_terms.append((price_cap * r).sum())
 
-        # Forventet varmereduktion per enhed [MW varme, dim=time]
-        #   α · COP · r  = forventet aktiveret el-MW × COP = tabt varme i MW
-        heat_reduction_terms.append(alpha * cop * r)
-
-        # Aktiveringsindtægt [DKK]
-        # Pr. MWh forventet el-reduktion:
-        #   + π_act  (aktiveringspris)
-        #   + spot + tarif + elafgift (sparet forbrugsomkostning)
-        # gange forventet aktiveret el-volumen α(t) · r[t] · 1h
-        activation_revenue_terms.append(
-            (alpha * (price_act + el_cost_per_mwh) * r).sum()
-        )
+        # Forventet varmereduktion + aktiveringsindtægt — metodeafhængigt.
+        if method == "activation_value":
+            # Ny (kovarians-korrekt): av[t] er DKK pr. reserveret MW pr. time,
+            # forudberegnet fra sub-time-priser. clear_frac[t] er andelen af
+            # timen buddet clearer → varmeside-α.
+            heat_reduction_terms.append(clear_frac * cop * r)
+            activation_revenue_terms.append((av * r).sum())
+        else:
+            # Gammel (E[α]×E[p]): time-midlet α × time-midlet pris.
+            #   varmereduktion = α · COP · r
+            #   indtægt = α · (π_act + spot + tarif + afgift) · r
+            heat_reduction_terms.append(alpha * cop * r)
+            activation_revenue_terms.append(
+                (alpha * (price_act + el_cost_per_mwh) * r).sum()
+            )
 
     capacity_revenue = sum(capacity_revenue_terms) if capacity_revenue_terms else 0
     activation_revenue = sum(activation_revenue_terms) if activation_revenue_terms else 0
@@ -390,6 +408,31 @@ def _add_group_constraints(
 # Fælles reserve-loft — ét loft over begge markeder og alle bydende enheder
 # ---------------------------------------------------------------------------
 
+def _add_per_unit_caps(
+    m: lp.Model,
+    caps,  # AncillaryCaps
+    afrr_vars: dict,
+    mfrr_vars: dict,
+) -> None:
+    """Per-enheds-loft på samlet bud (aFRR + mFRR) per time:
+
+        r_afrr[i,t] + r_mfrr[i,t] ≤ per_unit_mw[i]    ∀t
+
+    Håndhæves ALTID når sat — uafhængigt af det samlede loft. Billund: VP ≤ 6 MW.
+    """
+    for unit_name, cap_mw in (caps.per_unit_mw or {}).items():
+        terms = [d[unit_name] for d in (afrr_vars, mfrr_vars) if unit_name in d]
+        if not terms:
+            continue
+        s = terms[0]
+        for term in terms[1:]:
+            s = s + term
+        m.add_constraints(s <= float(cap_mw), name=f"per_unit_cap_{unit_name}")
+        print(
+            f"  Per-enheds-loft: {unit_name} (aFRR+mFRR) ≤ {float(cap_mw):.1f} MW/time"
+        )
+
+
 def _add_shared_cap_constraint(
     m: lp.Model,
     cap_mw: float,
@@ -486,8 +529,19 @@ def add_balancing_reserves(
     # Fælles reserve-loft (Billunds prækvalificering). Når sat erstatter det
     # de separate per-enhed/per-gruppe lofter: per-enheds-max-bud springes over
     # i _add_market_reserves, og gruppe-constraints springes over her i caller.
+    # Balancering-metode (session 22) + lofter.
+    method = getattr(cfg, "balancing_method", "legacy")
+    caps = getattr(cfg, "ancillary_caps", None)
     shared_cap = getattr(cfg, "shared_reserve_cap_mw", None)
-    apply_max_bid = shared_cap is None
+    # ancillary_caps har forrang: når sat springes både per-enheds-afrr_max_bid
+    # (gammel pris-taker-beskyttelse) og shared_reserve_cap over.
+    use_new_caps = caps is not None
+    apply_max_bid = (not use_new_caps) and (shared_cap is None)
+    print(
+        "  Balancering: metode = "
+        + ("activation_value (kovarians-korrekt av)" if method == "activation_value"
+           else "legacy (E[α]×E[p])")
+    )
 
     for market, available in ((_AFRR, afrr_available), (_MFRR, mfrr_available)):
         if not available:
@@ -506,10 +560,10 @@ def add_balancing_reserves(
         per_market_results[market.label] = _add_market_reserves(
             m, market, eligible, data, el_cost_per_mwh,
             apply_max_bid=apply_max_bid,
+            method=method,
         )
-        # Gruppe-constraints per marked (kun når INTET fælles loft er sat —
-        # det fælles loft erstatter gruppe-lofterne).
-        if shared_cap is None:
+        # Gruppe-constraints per marked (kun når INTET fælles loft / nye caps).
+        if not use_new_caps and shared_cap is None:
             _add_group_constraints(
                 m, cfg, market, per_market_results[market.label]["var_by_unit"],
             )
@@ -526,9 +580,12 @@ def add_balancing_reserves(
     # Fælles footroom — bindes på sum af alle bud per enhed
     _add_footroom_constraints(m, cfg, data, heat_prod, afrr_vars, mfrr_vars)
 
-    # Fælles reserve-loft på summen over begge markeder (hvis sat) — tilføjes
-    # EFTER footroom, så begge bindinger gælder samtidigt.
-    if shared_cap is not None:
+    # Lofter: nye ancillary_caps har forrang; ellers gammel shared_reserve_cap.
+    if use_new_caps:
+        _add_per_unit_caps(m, caps, afrr_vars, mfrr_vars)
+        if caps.total_mw is not None:
+            _add_shared_cap_constraint(m, caps.total_mw, afrr_vars, mfrr_vars)
+    elif shared_cap is not None:
         _add_shared_cap_constraint(m, shared_cap, afrr_vars, mfrr_vars)
 
     # Totale udtryk (summer over aktive markeder)
@@ -586,6 +643,10 @@ def _summarize_one_market(
     price_act = data.get(market.act_price_key)
     alpha = data.get(market.alpha_key)
     spot = data.get("spot_price")
+    # Activation_value-metoden: av/clear ligger i data når den var aktiv.
+    # Auto-detekteres her, så sammendraget matcher den metode der blev løst.
+    av = data.get(market.act_value_key) if market.act_value_key else None
+    clear = data.get(market.clear_fraction_key) if market.clear_fraction_key else None
 
     out = {}
     for var_name in r_vars:
@@ -599,7 +660,15 @@ def _summarize_one_market(
         }
         if price_cap is not None:
             entry["capacity_revenue_dkk"] = float((r_series * price_cap).sum())
-        if alpha is not None and price_act is not None and spot is not None:
+        if av is not None:
+            # Ny metode (kovarians-korrekt): av·r matcher objektivets akt-term
+            # (inkl. sparet forbrug). clear·r er forventet aktiveret volumen.
+            entry["activation_price_revenue_dkk"] = float((av * r_series).sum())
+            if clear is not None:
+                entry["expected_activated_mwh"] = float((clear * r_series).sum())
+        elif alpha is not None and price_act is not None and spot is not None:
+            # Gammel metode (E[α]×E[p]). NB: udelader sparet forbrug (historisk
+            # forenkling i sammendraget — objektivet medregner det).
             activated_mwh = float((alpha * r_series).sum())
             entry["expected_activated_mwh"] = activated_mwh
             entry["activation_price_revenue_dkk"] = float(

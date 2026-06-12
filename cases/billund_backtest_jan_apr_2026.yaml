@@ -1,0 +1,303 @@
+# ==============================================================================
+# BILLUND VARMEVÆRK — Backtest mod realiseret drift, jan–april 2026
+# ==============================================================================
+# Backtest af den NYE balancering (activation_value, kovarians-korrekt av(t))
+# mod Billunds realiserede balanceindtægt jan–april 2026.
+#
+# Centrale forskelle ift. H2 2025-fase2-casen:
+#   * balancing.method = activation_value (ny). Skift til legacy for A/B:
+#       --balancing-method legacy
+#   * elkedel_ny er IKKE i drift (under inkøring) → enabled: false
+#   * ancillary_caps: VP ≤ 6 MW (altid) + total 15 MW (kun elkedel_gl
+#     tilgængelig). Erstatter det gamle shared_reserve_cap_mw.
+#   * bid_strategy: op-bud = spot + 500 (Tier 1; bånd op til +2000 er Tier 2).
+#
+# KØRES MED:
+#   python run_case.py cases/billund_backtest_jan_apr_2026.yaml \
+#       --data-source github --with-balancing \
+#       --start 2026-01-01 --end 2026-04-30 \
+#       --heat-csv data/billund_abvaerk_hourly.csv
+#
+# A/B mod gammel metode (samme case, kun toggle):
+#   ... --balancing-method legacy
+#
+# VALIDERING: sammenlign mod realiseret balance-facit jan–apr 2026 pr. produkt
+# (aFRR akt/kap, mFRR akt/kap). Forvent at activation_value rammer aFRR-
+# aktivering markant højere end legacy (kovarians-spikene).
+#
+# BEKRÆFT FØR KØRSEL:
+#   - Prisniveauer (gas/halm) er kopieret fra H2 2025 — opdatér med Q1 2026.
+#   - Tankvolumen jan–apr 2026 (12.000 vs 22.000 m³ VAK26) — sæt fra drift.
+#   - elafgift (4 vs 45,6 DKK/MWh) — som i fase2.
+# ==============================================================================
+
+meta:
+  case_name: "billund_backtest_jan_apr_2026"
+  description: >
+    Backtest af activation_value-balancering mod realiseret drift jan–april
+    2026. elkedel_ny under inkøring (ikke i drift) → total reserve-loft 15 MW.
+    Op-bud = spot + 500 DKK/MWh. Sammenlignes mod realiseret balance-facit.
+  timezone_internal: "UTC"
+  timezone_reporting: "Europe/Copenhagen"
+  discount_rate_real: 0.035
+  tax_year: 2026
+
+# ------------------------------------------------------------------------------
+# TIDSHORISONT
+# ------------------------------------------------------------------------------
+time:
+  start: "2026-01-01T00:00:00Z"
+  end:   "2026-04-30T23:00:00Z"
+  resolution: "1h"
+
+# ------------------------------------------------------------------------------
+# VARMELAST-SYNTESE (parses men ignoreres når --heat-csv er aktivt)
+# ------------------------------------------------------------------------------
+heat_load_params:
+  gaf_mw_per_k: 0.9761
+  t_ref: 15.0
+  thermal_inertia_hours: 24
+  nettab_slope_mw_per_k: 0.6081
+  t_net: 12.0
+  baseline_profile_mw:
+    [5.66, 5.74, 5.87, 6.08, 6.15, 6.52,
+     7.13, 7.15, 6.83, 6.32, 6.09, 5.99,
+     5.82, 5.70, 5.63, 5.56, 5.65, 5.87,
+     6.03, 6.08, 6.04, 6.03, 5.88, 5.60]
+  weekly_dip: 0.02
+  _source: "Kalibreret mod Billund ab værk — ignoreres ved --heat-csv"
+
+# ------------------------------------------------------------------------------
+# PRISER OG AFGIFTER  (BEKRÆFT: kopieret fra H2 2025 — opdatér til Q1 2026)
+# ------------------------------------------------------------------------------
+prices:
+  natural_gas:
+    value: 606.0
+    unit: "DKK/MWh_fuel"
+  straw:
+    value: 232.0
+    unit: "DKK/MWh_fuel"
+  flis:
+    value: 232.0           # John: sættes lig halm
+    unit: "DKK/MWh_fuel"
+  waste_heat:
+    value: 50.0
+    unit: "DKK/MWh_fuel"
+  co2_eua:
+    value: 0.0
+    unit: "DKK/MWh_gas"
+
+# ------------------------------------------------------------------------------
+# ELMARKED OG TARIFFER
+# ------------------------------------------------------------------------------
+electricity:
+  spot_area: "DK1"
+  tariff_consumption_flat: 125.0
+  tariff_production_flat: 4.1
+  electricity_tax: 4.0
+
+# ------------------------------------------------------------------------------
+# PRODUKTIONSENHEDER
+# ------------------------------------------------------------------------------
+units:
+
+  vp_luft_vand:
+    enabled: true
+    type: "heat_pump"
+    p_max_heat: 16.0
+    p_min_heat: 0.0
+    alpha: -0.333
+    fuel: "electricity"
+    var_om: 13.4
+    start_cost: 0.0
+    min_uptime: 1
+    min_downtime: 1
+    uc_enabled: false
+    cop_curve:
+      type: linear
+      a: 2.2
+      b: 0.08
+      cop_min: 1.8
+      cop_max: 4.0
+    ancillary:
+      afrr_qualified: true
+      mfrr_qualified: true
+      fcr_qualified: false
+    commissioned: 2025
+
+  # ---- Elkedel ny (30 MW) — IKKE i drift jan–apr 2026 (under inkøring) ----
+  elkedel_ny:
+    enabled: false
+    type: "electric_boiler"
+    p_max_heat: 30.0
+    p_min_heat: 0.0
+    alpha: -1.0
+    fuel: "electricity"
+    var_om: 13.4
+    start_cost: 0.0
+    min_uptime: 1
+    min_downtime: 1
+    uc_enabled: false
+    ancillary:
+      afrr_qualified: true
+      mfrr_qualified: true
+      fcr_qualified: false
+    commissioned: 2026
+    notes: "Under inkøring jan–apr 2026 — ikke i drift. Derfor total-loft 15 MW."
+
+  elkedel_gl:
+    enabled: true
+    type: "electric_boiler"
+    p_max_heat: 15.0
+    p_min_heat: 0.0
+    alpha: -1.0
+    fuel: "electricity"
+    var_om: 6.71
+    start_cost: 0.0
+    min_uptime: 1
+    min_downtime: 1
+    uc_enabled: false
+    ancillary:
+      afrr_qualified: true
+      mfrr_qualified: true
+      fcr_qualified: false
+    commissioned: 2021
+
+  fliskedel:
+    enabled: true
+    type: "biomass_boiler"
+    p_max_heat: 7.0
+    p_min_heat: 2.0           # ANTAGET ~29% — bekræft min-last med John
+    alpha: 0.0
+    fuel: "flis"
+    eta_fuel_to_heat: 0.94    # John
+    var_om: 30.0              # ANTAGET = halm — bekræft
+    start_cost: 5000.0        # ANTAGET — bekræft
+    min_uptime: 72            # John: skal mindst køre 72 timer ad gangen
+    min_downtime: 6
+    uc_enabled: true
+    initial_status: 1
+    ancillary: {afrr_qualified: false, mfrr_qualified: false, fcr_qualified: false}
+    commissioned: 2009
+
+  halmkedel:
+    enabled: true
+    type: "biomass_boiler"
+    p_max_heat: 12.0
+    p_min_heat: 4.0
+    alpha: 0.0
+    fuel: "straw"
+    eta_fuel_to_heat: 0.96
+    var_om: 30.0
+    start_cost: 8000.0
+    min_uptime: 4
+    min_downtime: 6
+    uc_enabled: true
+    initial_status: 1
+    ancillary: {afrr_qualified: false, mfrr_qualified: false, fcr_qualified: false}
+    commissioned: 2015
+
+  gasmotor:
+    enabled: true
+    type: "gas_engine_chp"
+    p_max_heat: 2.8
+    p_min_heat: 0.9
+    alpha: 0.72
+    fuel: "natural_gas"
+    eta_fuel_to_heat: 0.49
+    var_om: 608.0
+    start_cost: 2000.0
+    min_uptime: 2
+    min_downtime: 2
+    uc_enabled: false
+    initial_status: 0
+    co2_emissions_per_mwh_fuel: 0.0
+    ancillary:
+      afrr_qualified: true
+      mfrr_qualified: true
+      fcr_qualified: false
+      afrr_max_bid_mw: 1.0
+      mfrr_max_bid_mw: 2.0
+    commissioned: 2000
+
+  gaskedel_agg:
+    enabled: true
+    type: "gas_boiler"
+    p_max_heat: 16.3
+    p_min_heat: 0.0
+    alpha: 0.0
+    fuel: "natural_gas"
+    eta_fuel_to_heat: 0.95
+    var_om: 89.0
+    start_cost: 500.0
+    min_uptime: 1
+    min_downtime: 1
+    uc_enabled: false
+    co2_emissions_per_mwh_fuel: 0.0
+    ancillary: {afrr_qualified: false, mfrr_qualified: false, fcr_qualified: false}
+
+  overskudsvarme:
+    enabled: false
+    type: "waste_heat"
+    p_max_heat: 4.0
+    p_min_heat: 4.0
+    alpha: 0.0
+    fuel: "waste_heat"
+    eta_fuel_to_heat: 1.0
+    var_om: 5.0
+    start_cost: 0.0
+    min_uptime: 1
+    min_downtime: 1
+    uc_enabled: false
+    ancillary: {afrr_qualified: false, mfrr_qualified: false, fcr_qualified: false}
+    commissioned: 2026
+
+# ------------------------------------------------------------------------------
+# VARMELAGER  (BEKRÆFT volumen jan–apr 2026: 12.000 vs 22.000 m³ VAK26)
+# ------------------------------------------------------------------------------
+storage:
+  tank_eksisterende:
+    enabled: true
+    volume_m3: 12000
+    delta_t_k: 40.0
+    e_max_mwh: null
+    e_initial_mwh: 279
+    p_max_charge_mw: 60.0
+    p_max_discharge_mw: 60.0
+    self_discharge_per_hour: 0.0
+    cycle_binding: true
+    notes: "BEKRÆFT volumen for jan–apr 2026 fra driftsvirkelighed."
+
+# ------------------------------------------------------------------------------
+# BALANCEMARKED — ny metode (activation_value) + generiske lofter
+# ------------------------------------------------------------------------------
+# method:
+#   activation_value = kovarians-korrekt av(t), beregnet i datalaget fra
+#                      15-min aktiveringspriser mod budkurven spot + markup.
+#   legacy           = gammel E[α]×E[p]. Skift via --balancing-method legacy.
+#
+# bid_strategy (jf. interview John/Jens, Billund):
+#   op-bud = spot + up_markup_dkk_mwh. up_markup_max er øvre båndgrænse
+#   (tank-styret positionering, Tier 2 — bruges ikke i Tier-1-av endnu).
+#   down_markdown udeladt → up-only (som nuværende modelscope).
+#
+# ancillary_caps:
+#   per_unit_mw: VP ≤ 6 MW (aFRR+mFRR samlet), håndhæves ALTID.
+#   total_mw:    Σ alle bud ≤ 15 MW — kun elkedel_gl tilgængelig (elkedel_ny
+#                ude). Med begge kedler i drift sættes 33 (og elkedel_ny
+#                enabled: true).
+balancing:
+  method: activation_value
+  bid_strategy:
+    up_markup_dkk_mwh: 500
+    up_markup_max_dkk_mwh: 2000
+  ancillary_caps:
+    per_unit_mw:
+      vp_luft_vand: 6.0
+    total_mw: 15.0
+
+# ------------------------------------------------------------------------------
+# INVESTERING (ikke aktiv i backtest)
+# ------------------------------------------------------------------------------
+investment:
+  enabled: false

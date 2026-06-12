@@ -261,6 +261,7 @@ def fetch_balance_prices_github(
     *,
     repo_root: Path,
     target_index: Optional[pd.DatetimeIndex] = None,
+    av_params: Optional[dict] = None,
 ) -> xr.Dataset:
     """
     Spejl af `fetch_balance_prices` — læser de fire balancemarkedsdatasæt
@@ -315,6 +316,35 @@ def fetch_balance_prices_github(
         k: xr.DataArray(v, dims=["time"]) for k, v in hourly.items()
     })
 
+    # ----- av(t): kovarians-korrekt aktiveringsværdi (activation_value-metode) ---
+    # Beregnes på 15-min df_imb FØR time-aggregering, så scarcity-spikene bevares.
+    av_ds = None
+    if av_params is not None:
+        from .activation_value import compute_activation_value
+        spot15 = av_params["spot_15min"]
+        el_flat = float(av_params["el_cost_flat"])
+        markup_up = float(av_params["markup_up"])
+        av_vars = {}
+        for price_col, av_key, clear_key in (
+            ("aFRRVWAUpDKK", "afrr_activation_value_up", "afrr_clear_fraction_up"),
+            ("mFRRMarginalPriceUpDKK", "mfrr_activation_value_up",
+             "mfrr_clear_fraction_up"),
+        ):
+            p15 = df_imb[price_col].astype(float).fillna(0.0)
+            res = compute_activation_value(
+                p15, spot15, markup=markup_up, el_cost_flat=el_flat,
+                dt_h=0.25, direction="up",
+            )
+            av_vars[av_key] = xr.DataArray(res.av, dims=["time"])
+            av_vars[clear_key] = xr.DataArray(res.clear_fraction, dims=["time"])
+        av_ds = xr.Dataset(av_vars)
+        print(
+            f"  av(t) beregnet (markup={markup_up:.0f}, el_flat={el_flat:.0f}): "
+            f"aFRR av-gns={float(av_ds['afrr_activation_value_up'].mean()):.1f}, "
+            f"mFRR av-gns={float(av_ds['mfrr_activation_value_up'].mean()):.1f} "
+            f"DKK/MW/time"
+        )
+
     # ----- mFRR kapacitet (time-opløst) -----
     df_mcap = _read_dataset(repo_root, "mfrr_cap", zone, start, end, time_col="TimeUTC")
     if df_mcap.empty:
@@ -341,7 +371,10 @@ def fetch_balance_prices_github(
         "mfrr_act_up_mw": xr.DataArray(mfrr_up_mw_hourly, dims=["time"]),
     })
 
-    merged = xr.merge([cap_ds, imb_ds, mcap_ds, mact_ds], join="outer")
+    datasets = [cap_ds, imb_ds, mcap_ds, mact_ds]
+    if av_ds is not None:
+        datasets.append(av_ds)
+    merged = xr.merge(datasets, join="outer")
 
     # ----- α-aFRR(t) og α-mFRR(t) — identisk med fetch_balance_prices -----
     cap_up = merged["afrr_cap_procured_up"]
@@ -447,12 +480,23 @@ def load_external_data_github(
     if with_balancing:
         start_iso = pd.Timestamp(cfg.time.start).strftime("%Y-%m-%dT%H:%M")
         end_iso = pd.Timestamp(cfg.time.end).strftime("%Y-%m-%dT%H:%M")
+        # av-params kun når den nye metode er valgt — kræver budstrategi + 15-min spot.
+        av_params = None
+        if getattr(cfg, "balancing_method", "legacy") == "activation_value":
+            bs = cfg.bid_strategy
+            av_params = {
+                "spot_15min": spot_raw,   # native opløsning (15-min for 2026)
+                "markup_up": bs.up_markup_dkk_mwh,
+                "el_cost_flat": (cfg.electricity.tariff_consumption_flat
+                                 + cfg.electricity.electricity_tax),
+            }
         bal = fetch_balance_prices_github(
             start=start_iso,
             end=end_iso,
             zone=cfg.electricity.spot_area,
             repo_root=repo_root,
             target_index=pd.DatetimeIndex(ds.time.values),
+            av_params=av_params,
         )
         ds = xr.merge([ds, bal])
 

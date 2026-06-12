@@ -68,6 +68,38 @@ class AncillaryGroup:
 
 
 @dataclass
+class BidStrategy:
+    """Værkets budstrategi på aktiveringsmarkedet (jf. interview Billund).
+
+    Buddet sættes relativt til spot. Opregulering: spot + up_markup_dkk_mwh.
+    av(t) (kovarians-korrekt aktiveringsværdi) beregnes i datalaget ved dette
+    bud. up_markup_max_dkk_mwh er øvre båndgrænse (tank-styret positionering,
+    Tier 2) — bruges ikke i Tier-1-beregningen, kun dokumentation.
+
+    down_markdown_dkk_mwh: bud ned = spot − denne. None = ingen ned-bud
+    (modellen er up-only som i dag indtil ned valideres mod facit).
+    """
+    up_markup_dkk_mwh: float
+    up_markup_max_dkk_mwh: Optional[float] = None
+    down_markdown_dkk_mwh: Optional[float] = None
+    down_markdown_max_dkk_mwh: Optional[float] = None
+
+
+@dataclass
+class AncillaryCaps:
+    """Generiske reservelofter (erstatter shared_reserve_cap_mw).
+
+    per_unit_mw: maks samlet bud (aFRR+mFRR) per enhed [MW el]. Håndhæves ALTID.
+        Billund: {vp_luft_vand: 6.0}.
+    total_mw:    maks summen af ALLE bud på tværs af markeder og enheder per time.
+        Billund: 33 (begge elkedler) / 15 (kun elkedel_gl, elkedel_ny under
+        inkøring). Sættes konsistent med hvilke kedler casen har enabled.
+    """
+    per_unit_mw: dict = field(default_factory=dict)
+    total_mw: Optional[float] = None
+
+
+@dataclass
 class COPCurve:
     """
     COP(T_ambient) for varmepumper — lineær approksimation (trin 2).
@@ -217,6 +249,7 @@ class Prices:
     straw: float
     waste_heat: float
     co2_eua: float                                # DKK per MWh_gas (omregnet fra EUA)
+    flis: float = 0.0                             # DKK/MWh_brændsel (flis/træflis)
 
     def fuel_price(self, fuel: str) -> float:
         """Returnér råvare-brændselspris i DKK/MWh_brændsel."""
@@ -224,6 +257,7 @@ class Prices:
             "natural_gas": self.natural_gas,
             "straw": self.straw,
             "waste_heat": self.waste_heat,
+            "flis": self.flis,
         }
         if fuel not in mapping:
             raise KeyError(f"Ukendt brændsel: {fuel}")
@@ -264,6 +298,15 @@ class CaseConfig:
     # (AncillaryGroup) lofter; disse springes over i balancing.py.
     # None = gammel adfærd (per-enhed/per-gruppe lofter håndhæves).
     shared_reserve_cap_mw: Optional[float] = None
+    # --- Ny balancering (session 22) ---
+    # method: "legacy" (E[α]×E[p], gammel) | "activation_value" (E[α·p], ny,
+    # kovarians-korrekt via av(t) beregnet i datalaget). Toggle mellem de to.
+    balancing_method: str = "legacy"
+    bid_strategy: Optional["BidStrategy"] = None
+    # ancillary_caps erstatter shared_reserve_cap_mw når sat: per-enheds-loft
+    # (altid håndhævet) + ét samlet loft. shared_reserve_cap_mw bevares for
+    # bagudkompatibilitet med eksisterende cases.
+    ancillary_caps: Optional["AncillaryCaps"] = None
 
 
 # ------------------------------------------------------------------------------
@@ -394,6 +437,7 @@ def load_case(
         straw=p["straw"]["value"],
         waste_heat=p["waste_heat"]["value"],
         co2_eua=p["co2_eua"]["value"],
+        flis=p["flis"]["value"] if "flis" in p else p["straw"]["value"],
     )
 
     # El
@@ -432,6 +476,30 @@ def load_case(
             )
         groups[gname] = group
 
+    # Balancering (session 22): method-toggle, budstrategi, generiske lofter
+    bal_raw = raw.get("balancing", {})
+    balancing_method = bal_raw.get("method", "legacy")
+    if balancing_method not in ("legacy", "activation_value"):
+        raise ValueError(
+            f"balancing.method skal være 'legacy' eller 'activation_value', "
+            f"fik {balancing_method!r}"
+        )
+    bs_raw = bal_raw.get("bid_strategy")
+    bid_strategy = BidStrategy(**bs_raw) if bs_raw else None
+    if balancing_method == "activation_value" and bid_strategy is None:
+        raise ValueError(
+            "balancing.method='activation_value' kræver balancing.bid_strategy"
+        )
+    caps_raw = bal_raw.get("ancillary_caps")
+    ancillary_caps = (
+        AncillaryCaps(
+            per_unit_mw=caps_raw.get("per_unit_mw", {}),
+            total_mw=caps_raw.get("total_mw"),
+        )
+        if caps_raw
+        else None
+    )
+
     return CaseConfig(
         meta=raw["meta"],
         time=time,
@@ -442,4 +510,7 @@ def load_case(
         ancillary_groups=groups,
         investment_enabled=raw.get("investment", {}).get("enabled", False),
         shared_reserve_cap_mw=raw.get("balancing", {}).get("shared_reserve_cap_mw"),
+        balancing_method=balancing_method,
+        bid_strategy=bid_strategy,
+        ancillary_caps=ancillary_caps,
     )

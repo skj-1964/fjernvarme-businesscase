@@ -182,6 +182,10 @@ def _parse_args():
     p.add_argument("--disable", action="append", default=[],
                    help="Override: deaktivér enhed eller lager (kan gentages)")
     # Balancemarked (trin 8.2)
+    p.add_argument("--balancing-method", choices=["legacy", "activation_value"],
+                   default=None,
+                   help="Overruler balancing.method i casen. legacy = E[α]×E[p] "
+                        "(gammel), activation_value = kovarians-korrekt av(t) (ny).")
     p.add_argument("--with-balancing", action="store_true",
                    help="Hent aFRR-priser fra EDS og aktivér reservemodel. "
                         "Kræver at cfg.time dækker et post-PICASSO regime "
@@ -259,9 +263,11 @@ def _build_output_stem(args, cfg) -> str:
     else:
         parts.append(f"{start_ts.strftime('%Y-%m-%d')}_{end_ts.strftime('%Y-%m-%d')}")
 
-    # Balancing-markør
+    # Balancing-markør + metode (så legacy/av-kørsler ikke overskriver hinanden)
     if args.with_balancing:
-        parts.append("bal")
+        method = getattr(cfg, "balancing_method", "legacy")
+        method_tag = "av" if method == "activation_value" else "legacy"
+        parts.append(f"bal-{method_tag}")
 
     # Legacy-nettab-markør (--legacy-nettab tilsidesætter nettab:-blok i YAML)
     if args.legacy_nettab:
@@ -497,6 +503,16 @@ def main():
 
     print(f"Indlæser case: {args.case}")
     cfg = load_case(args.case, overrides=args.set_overrides)
+
+    # CLI-override af balancing-metode (har forrang over casens method).
+    if args.balancing_method is not None:
+        cfg.balancing_method = args.balancing_method
+        print(f"  Balancing-metode overruled via CLI: {cfg.balancing_method}")
+        if cfg.balancing_method == "activation_value" and cfg.bid_strategy is None:
+            raise SystemExit(
+                "--balancing-method activation_value kræver balancing.bid_strategy "
+                "i casen."
+            )
 
     _apply_time_override(cfg, args.year, args.start, args.end)
     _apply_enable_disable(cfg, args.enable, args.disable)
