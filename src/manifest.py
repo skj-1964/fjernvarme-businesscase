@@ -131,6 +131,14 @@ def write_manifest(result, data, cfg, kpi, args, stem: str, out_dir: Path) -> di
     aktive = [u for u, unit in cfg.units.items() if unit.enabled]
     inaktive = [u for u, unit in cfg.units.items() if not unit.enabled]
 
+    # Lagre (fx tank_eksisterende) ligger i cfg.storage, ikke cfg.units. Tag
+    # disablede lagre med, så enheder_fra afspejler ALT der er slået fra —
+    # uanset om det skete i YAML'en eller via --disable. Symmetrisk med
+    # unit-loopet og uafhængigt af CLI-argumenterne.
+    inaktive_lagre = [s for s, lager in getattr(cfg, "storage", {}).items()
+                      if not lager.enabled]
+    enheder_fra = inaktive + inaktive_lagre
+
     har_balance = any(
         str(v).startswith(("r_afrr_", "r_mfrr_", "r_up_el_"))
         for v in result.data_vars
@@ -157,7 +165,7 @@ def write_manifest(result, data, cfg, kpi, args, stem: str, out_dir: Path) -> di
             },
             "med_balancering": har_balance,
             "enheder_til": aktive,
-            "enheder_fra": inaktive,
+            "enheder_fra": enheder_fra,
             "overrides": list(getattr(args, "set_overrides", []) or []),
             "foresight_haircut_pct": None,   # sættes i fortolkningslaget, ikke her
         },
