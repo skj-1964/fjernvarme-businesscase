@@ -88,7 +88,7 @@ from src.reporting import (
     write_hourly_csv,
     seasonal_summary,
 )
-
+from src.manifest import write_manifest
 
 def _parse_args():
     p = argparse.ArgumentParser(description="Kør fjernvarme business case")
@@ -555,6 +555,8 @@ def main():
     write_hourly_csv(result, data, cfg, out_dir / f"{stem}_hourly.csv")
     dispatch_plot(result, data, out_dir / f"{stem}_dispatch.png",
                   cfg=cfg, days=args.days)
+
+    write_manifest(result, data, cfg, kpi, args, stem, out_dir)
 
     print(f"\nOutput i: {out_dir.absolute()}")
     print(f"Filnavn-stem: {stem}")
