@@ -45,6 +45,10 @@ data/private/
 *.local.yaml
 *.local.csv
 
+# Lokale noter, STATUS-filer og Billunds kommercielle afregningsdata (facit).
+# Holdes uden for repoet — kun lokalt arbejdsmateriale.
+noter/
+
 # --- Logfiler ------------------------------------------------------------------
 *.log
 logs/
