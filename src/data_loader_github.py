@@ -325,10 +325,11 @@ def fetch_balance_prices_github(
         el_flat = float(av_params["el_cost_flat"])
         markup_up = float(av_params["markup_up"])
         av_vars = {}
-        for price_col, av_key, clear_key in (
-            ("aFRRVWAUpDKK", "afrr_activation_value_up", "afrr_clear_fraction_up"),
+        for price_col, av_key, pay_key, clear_key in (
+            ("aFRRVWAUpDKK", "afrr_activation_value_up",
+             "afrr_activation_payment_up", "afrr_clear_fraction_up"),
             ("mFRRMarginalPriceUpDKK", "mfrr_activation_value_up",
-             "mfrr_clear_fraction_up"),
+             "mfrr_activation_payment_up", "mfrr_clear_fraction_up"),
         ):
             p15 = df_imb[price_col].astype(float).fillna(0.0)
             res = compute_activation_value(
@@ -336,6 +337,8 @@ def fetch_balance_prices_github(
                 dt_h=0.25, direction="up",
             )
             av_vars[av_key] = xr.DataArray(res.av, dims=["time"])
+            # Netto aktiveringsbetaling (kun p_act) — diagnostik/rapportering.
+            av_vars[pay_key] = xr.DataArray(res.av_payment, dims=["time"])
             av_vars[clear_key] = xr.DataArray(res.clear_fraction, dims=["time"])
         av_ds = xr.Dataset(av_vars)
         print(

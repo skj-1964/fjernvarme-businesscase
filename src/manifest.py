@@ -60,27 +60,56 @@ def _clean_status(raw) -> str:
 
 
 def _balance_income(result, data) -> dict | None:
-    """aFRR/mFRR-indtægt per marked = kapacitet + aktiveringspris.
+    """aFRR/mFRR-indtægt per marked, netto- og brutto-opdelt (Diagnose 2).
 
-    Henter de bekræftede felter fra balancing.summarize_reserves, som
-    returnerer {"aFRR": {unit: {...}}, "mFRR": {unit: {...}}}.
+    Henter felterne fra balancing.summarize_reserves, som returnerer
+    {"aFRR": {unit: {...}}, "mFRR": {unit: {...}}}.
+
+    Tre komponenter pr. marked:
+      kapacitet   = Σ price_cap·r
+      netto akt   = Σ av_payment·r        (ren aktiveringsbetaling, kun p_act)
+      forbrugsmod = Σ (av−av_payment)·r   (sparet forbrug spot+tarif+afgift)
+
+    balanceindtægt rapporteres NETTO (kapacitet + netto-aktivering) i 'i_alt',
+    'afrr', 'mfrr' — bagudkompatible nøgler. Brutto (kapacitet + brutto-
+    aktivering, identisk med objektivets balance-term) lægges ved siden af
+    under 'brutto'. Felter falder tilbage til gammelt skema når av_payment
+    ikke er beregnet (legacy-metode).
     """
     summ = summarize_reserves(result, data)
     if not summ:
         return None
-    pr_market = {}
-    total = 0.0
+    pr_market_net = {}
+    pr_market_gross = {}
+    total_net = 0.0
+    total_gross = 0.0
     for label, units in summ.items():            # label: "aFRR" / "mFRR"
-        m = 0.0
+        cap = net = off = 0.0
         for entry in units.values():
-            m += float(entry.get("capacity_revenue_dkk", 0.0))
-            m += float(entry.get("activation_price_revenue_dkk", 0.0))
-        pr_market[label.lower()] = round(m, 0)
-        total += m
+            cap += float(entry.get("capacity_revenue_dkk", 0.0))
+            # Netto aktivering: nyt felt activation_payment_dkk; fald tilbage
+            # til activation_price_revenue_dkk (som er sat = netto i ny metode,
+            # men = legacy-tal i gammel metode).
+            net += float(entry.get(
+                "activation_payment_dkk",
+                entry.get("activation_price_revenue_dkk", 0.0),
+            ))
+            off += float(entry.get("consumption_offset_dkk", 0.0))
+        m_net = cap + net
+        m_gross = cap + net + off
+        pr_market_net[label.lower()] = round(m_net, 0)
+        pr_market_gross[label.lower()] = round(m_gross, 0)
+        total_net += m_net
+        total_gross += m_gross
     return {
-        "i_alt": round(total, 0),
-        "afrr": pr_market.get("afrr"),
-        "mfrr": pr_market.get("mfrr"),
+        "i_alt": round(total_net, 0),
+        "afrr": pr_market_net.get("afrr"),
+        "mfrr": pr_market_net.get("mfrr"),
+        "brutto": {
+            "i_alt": round(total_gross, 0),
+            "afrr": pr_market_gross.get("afrr"),
+            "mfrr": pr_market_gross.get("mfrr"),
+        },
     }
 
 

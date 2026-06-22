@@ -41,10 +41,16 @@ import pandas as pd
 class ActivationValue:
     """Time-opløste serier udledt af sub-time-priser.
 
-    av:             DKK pr. reserveret MW pr. time (indtægtskoefficient)
+    av:             DKK pr. reserveret MW pr. time (BRUTTO indtægtskoefficient,
+                    p_act + spot + el_cost_flat — bruges uændret i objektivet)
+    av_payment:     DKK pr. reserveret MW pr. time (NETTO aktiveringsbetaling,
+                    kun p_act — samme aggregering og clearing som av, men uden
+                    forbrugsmodregningen spot + el_cost_flat). Diagnostik/
+                    rapportering; objektivet rører den ikke.
     clear_fraction: andel af timen hvor buddet clearer [0,1] (varmeside-α)
     """
     av: pd.Series
+    av_payment: pd.Series
     clear_fraction: pd.Series
 
 
@@ -88,12 +94,20 @@ def compute_activation_value(
     clears = (p >= bid) if direction == "up" else (p <= bid)
     clears = clears.astype(float)
 
-    # Fuld værdi pr. MWh op-reguleret el i de clearende intervaller.
+    # Fuld (brutto) værdi pr. MWh op-reguleret el i de clearende intervaller.
     value_per_mwh = p + s + el_cost_flat
     value_sub = dt_h * clears * value_per_mwh          # DKK pr. MW pr. sub-interval
+    # Netto aktiveringsbetaling: kun aktiveringsprisen p, samme clearing/grid.
+    # Differensen (av − av_payment) = forbrugsmodregningen (spot + el_cost_flat).
+    payment_sub = dt_h * clears * p                    # DKK pr. MW pr. sub-interval
     cleared_h_sub = dt_h * clears                      # timer clearet pr. sub-interval
 
     av_hourly = value_sub.resample("1h").sum()
+    av_payment_hourly = payment_sub.resample("1h").sum()
     clear_fraction_hourly = cleared_h_sub.resample("1h").sum().clip(0.0, 1.0)
 
-    return ActivationValue(av=av_hourly, clear_fraction=clear_fraction_hourly)
+    return ActivationValue(
+        av=av_hourly,
+        av_payment=av_payment_hourly,
+        clear_fraction=clear_fraction_hourly,
+    )

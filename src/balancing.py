@@ -99,9 +99,13 @@ class _MarketSpec:
     max_bid_attr: str
     label: str
     # Nye serier til activation_value-metoden (forudberegnet i datalaget):
-    #   av_key:    DKK pr. reserveret MW pr. time (kovarians-korrekt indtægt)
-    #   clear_key: andel af timen hvor buddet clearer [0,1] (varmeside-α)
+    #   av_key:          DKK pr. reserveret MW pr. time (BRUTTO indtægt;
+    #                    p_act + spot + el_cost_flat — bruges i objektivet)
+    #   act_payment_key: DKK pr. reserveret MW pr. time (NETTO aktiverings-
+    #                    betaling; kun p_act). Diagnostik/rapportering.
+    #   clear_key:       andel af timen hvor buddet clearer [0,1] (varmeside-α)
     act_value_key: str = ""
+    act_payment_key: str = ""
     clear_fraction_key: str = ""
 
 
@@ -114,6 +118,7 @@ _AFRR = _MarketSpec(
     max_bid_attr="afrr_max_bid_mw",
     label="aFRR",
     act_value_key="afrr_activation_value_up",
+    act_payment_key="afrr_activation_payment_up",
     clear_fraction_key="afrr_clear_fraction_up",
 )
 
@@ -126,6 +131,7 @@ _MFRR = _MarketSpec(
     max_bid_attr="mfrr_max_bid_mw",
     label="mFRR",
     act_value_key="mfrr_activation_value_up",
+    act_payment_key="mfrr_activation_payment_up",
     clear_fraction_key="mfrr_clear_fraction_up",
 )
 
@@ -646,6 +652,7 @@ def _summarize_one_market(
     # Activation_value-metoden: av/clear ligger i data når den var aktiv.
     # Auto-detekteres her, så sammendraget matcher den metode der blev løst.
     av = data.get(market.act_value_key) if market.act_value_key else None
+    av_payment = data.get(market.act_payment_key) if market.act_payment_key else None
     clear = data.get(market.clear_fraction_key) if market.clear_fraction_key else None
 
     out = {}
@@ -661,9 +668,22 @@ def _summarize_one_market(
         if price_cap is not None:
             entry["capacity_revenue_dkk"] = float((r_series * price_cap).sum())
         if av is not None:
-            # Ny metode (kovarians-korrekt): av·r matcher objektivets akt-term
-            # (inkl. sparet forbrug). clear·r er forventet aktiveret volumen.
-            entry["activation_price_revenue_dkk"] = float((av * r_series).sum())
+            # Ny metode (kovarians-korrekt). Tre tal pr. enhed (Diagnose 2):
+            #   brutto  = Σ av·r          — matcher objektivets akt-term
+            #             (= netto-betaling + forbrugsmodregning)
+            #   netto   = Σ av_payment·r  — ren aktiveringsbetaling (kun p_act)
+            #   modregn = Σ (av−av_payment)·r — sparet forbrug (spot+tarif+afgift)
+            gross = float((av * r_series).sum())
+            entry["activation_gross_dkk"] = gross
+            if av_payment is not None:
+                net = float((av_payment * r_series).sum())
+                entry["activation_payment_dkk"] = net
+                entry["consumption_offset_dkk"] = gross - net
+            # Bagudkompat: behold feltet, men sæt det til NETTO (manifestets
+            # balanceindtægt = kapacitet + netto-aktivering, jf. Diagnose 2).
+            entry["activation_price_revenue_dkk"] = (
+                entry.get("activation_payment_dkk", gross)
+            )
             if clear is not None:
                 entry["expected_activated_mwh"] = float((clear * r_series).sum())
         elif alpha is not None and price_act is not None and spot is not None:
@@ -700,14 +720,16 @@ def print_reserve_summary(summary: dict):
         return
 
     grand_total_cap = 0.0
-    grand_total_act = 0.0
+    grand_total_net = 0.0
+    grand_total_off = 0.0
 
     for market_label, market_summary in summary.items():
         if not market_summary:
             continue
         print(f"\n=== {market_label.upper()} UP RESERVE-SAMMENDRAG ===")
         total_cap = 0.0
-        total_act = 0.0
+        total_net = 0.0
+        total_off = 0.0
         for unit_name, stats in market_summary.items():
             print(
                 f"  {unit_name}: "
@@ -722,24 +744,43 @@ def print_reserve_summary(summary: dict):
                 print(f"    kapacitetsindtægt: {rev/1e6:.3f} mio DKK/år")
             if "expected_activated_mwh" in stats:
                 mwh = stats["expected_activated_mwh"]
-                rev = stats["activation_price_revenue_dkk"]
-                total_act += rev
-                print(
-                    f"    forv. aktiveret el: {mwh:,.0f} MWh/år, "
-                    f"aktiveringsprisindtægt: {rev/1e6:.3f} mio DKK/år"
-                )
-        if total_cap > 0 or total_act > 0:
-            print(f"  {market_label} TOTAL kapacitet:      {total_cap/1e6:.3f} mio DKK/år")
-            if total_act > 0:
-                print(f"  {market_label} TOTAL aktiveringspris: {total_act/1e6:.3f} mio DKK/år")
+                # Ny metode: vis netto-betaling + forbrugsmodregning (= brutto).
+                if "activation_payment_dkk" in stats:
+                    net = stats["activation_payment_dkk"]
+                    off = stats.get("consumption_offset_dkk", 0.0)
+                    total_net += net
+                    total_off += off
+                    print(
+                        f"    forv. aktiveret el: {mwh:,.0f} MWh/år | "
+                        f"netto akt-betaling: {net/1e6:.3f} + forbrugsmodregn: "
+                        f"{off/1e6:.3f} = brutto {(net+off)/1e6:.3f} mio DKK/år"
+                    )
+                else:
+                    rev = stats.get("activation_price_revenue_dkk", 0.0)
+                    total_net += rev
+                    print(
+                        f"    forv. aktiveret el: {mwh:,.0f} MWh/år, "
+                        f"aktiveringsprisindtægt: {rev/1e6:.3f} mio DKK/år"
+                    )
+        if total_cap > 0 or total_net > 0 or total_off > 0:
+            print(f"  {market_label} TOTAL kapacitet:           {total_cap/1e6:.3f} mio DKK/år")
+            print(f"  {market_label} TOTAL netto akt-betaling:  {total_net/1e6:.3f} mio DKK/år")
+            print(f"  {market_label} TOTAL forbrugsmodregning:  {total_off/1e6:.3f} mio DKK/år")
+            print(f"  {market_label} TOTAL brutto (akt):        {(total_net+total_off)/1e6:.3f} mio DKK/år")
+            print(f"  {market_label} NETTO balanceindtægt (kap+netto): {(total_cap+total_net)/1e6:.3f} mio DKK/år")
         grand_total_cap += total_cap
-        grand_total_act += total_act
+        grand_total_net += total_net
+        grand_total_off += total_off
 
     if len(summary) > 1:
         print()
-        print(f"  SAMLET kapacitet (aFRR + mFRR):      {grand_total_cap/1e6:.3f} mio DKK/år")
-        print(f"  SAMLET aktiveringspris (aFRR + mFRR): {grand_total_act/1e6:.3f} mio DKK/år")
+        print(f"  SAMLET kapacitet (aFRR + mFRR):             {grand_total_cap/1e6:.3f} mio DKK/år")
+        print(f"  SAMLET netto akt-betaling (aFRR + mFRR):    {grand_total_net/1e6:.3f} mio DKK/år")
+        print(f"  SAMLET forbrugsmodregning (aFRR + mFRR):    {grand_total_off/1e6:.3f} mio DKK/år")
+        print(f"  SAMLET brutto aktivering (aFRR + mFRR):     {(grand_total_net+grand_total_off)/1e6:.3f} mio DKK/år")
+        print(f"  SAMLET NETTO balanceindtægt (kap+netto):    {(grand_total_cap+grand_total_net)/1e6:.3f} mio DKK/år")
+        print(f"  SAMLET BRUTTO balanceindtægt (kap+brutto):  {(grand_total_cap+grand_total_net+grand_total_off)/1e6:.3f} mio DKK/år")
         print(
-            f"  (OBS: sparede forbrugsomkostninger ved aktivering "
-            f"modregnes indirekte via heat_prod·mc-termen — ikke vist her)"
+            f"  (Brutto akt = netto akt-betaling + forbrugsmodregning. "
+            f"Objektivet bruger brutto; manifestet rapporterer netto.)"
         )
