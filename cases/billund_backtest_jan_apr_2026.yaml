@@ -8,8 +8,9 @@
 #   * balancing.method = activation_value (ny). Skift til legacy for A/B:
 #       --balancing-method legacy
 #   * elkedel_ny er IKKE i drift (under inkøring) → enabled: false
-#   * ancillary_caps: VP ≤ 6 MW (altid) + total 15 MW (kun elkedel_gl
-#     tilgængelig). Erstatter det gamle shared_reserve_cap_mw.
+#   * ancillary_caps: VP ≤ 6 MW (altid) + total 14 MW = Billunds faktiske
+#     prækvalificering (uafhængigt af hvilke kedler der er enabled).
+#     Erstatter det gamle shared_reserve_cap_mw.
 #   * bid_strategy: op-bud = spot + 500 (Tier 1; bånd op til +2000 er Tier 2).
 #
 # KØRES MED:
@@ -35,8 +36,9 @@ meta:
   case_name: "billund_backtest_jan_apr_2026"
   description: >
     Backtest af activation_value-balancering mod realiseret drift jan–april
-    2026. elkedel_ny under inkøring (ikke i drift) → total reserve-loft 15 MW.
-    Op-bud = spot + 500 DKK/MWh. Sammenlignes mod realiseret balance-facit.
+    2026. elkedel_ny under inkøring (ikke i drift). Total reserve-loft 14 MW =
+    Billunds faktiske prækvalificering. Op-bud = spot + 500 DKK/MWh.
+    Sammenlignes mod realiseret balance-facit.
   timezone_internal: "UTC"
   timezone_reporting: "Europe/Copenhagen"
   discount_rate_real: 0.035
@@ -143,7 +145,7 @@ units:
       mfrr_qualified: true
       fcr_qualified: false
     commissioned: 2026
-    notes: "Under inkøring jan–apr 2026 — ikke i drift. Derfor total-loft 15 MW."
+    notes: "Under inkøring jan–apr 2026 — ikke i drift. Reserve-loftet (14 MW) er Billunds prækvalificering og er uafhængigt af denne enheds enabled-flag."
 
   elkedel_gl:
     enabled: true
@@ -283,9 +285,12 @@ storage:
 #
 # ancillary_caps:
 #   per_unit_mw: VP ≤ 6 MW (aFRR+mFRR samlet), håndhæves ALTID.
-#   total_mw:    Σ alle bud ≤ 15 MW — kun elkedel_gl tilgængelig (elkedel_ny
-#                ude). Med begge kedler i drift sættes 33 (og elkedel_ny
-#                enabled: true).
+#   total_mw:    Σ alle bud ≤ 14 MW = Billunds FAKTISKE prækvalificerede
+#                reservekapacitet (fælles loft over begge markeder/alle enheder
+#                pr. time). Var tidligere 15 (sat ud fra elkedel_gl alene); de
+#                14 er den reelle prækvalificering og bruges i begge cases.
+#                Grænsen følger prækvalificering, ikke hvilke enheder der er
+#                enabled eller hvilket tidsvindue der køres.
 balancing:
   method: activation_value
   bid_strategy:
@@ -294,7 +299,7 @@ balancing:
   ancillary_caps:
     per_unit_mw:
       vp_luft_vand: 6.0
-    total_mw: 15.0
+    total_mw: 14.0           # Billunds faktiske prækvalificering (var 15)
 
 # ------------------------------------------------------------------------------
 # INVESTERING (ikke aktiv i backtest)

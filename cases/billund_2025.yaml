@@ -280,7 +280,11 @@ storage:
 # ------------------------------------------------------------------------------
 # BALANCEMARKED — activation_value (kovarians-korrekt) + generiske caps
 # ------------------------------------------------------------------------------
-# total_mw: 33 fordi BEGGE elkedler er i drift her (≠backtest: 15, elkedel_ny ude).
+# total_mw: 14 = Billunds FAKTISKE prækvalificerede reservekapacitet (det fælles
+# loft over begge markeder og alle enheder pr. time). De tidligere 33 var en
+# oppustning til den fysiske elkedel-sum, ikke en driftsbeslutning — mønster-
+# analysen viste at hele overdrivelsen sad i reserveret MW. 14 gælder uanset
+# hvilke kedler der er enabled (grænse følger prækvalificering, ikke tidsvindue).
 # per_unit VP ≤ 6 MW håndhæves altid.
 balancing:
   method: activation_value
@@ -290,7 +294,7 @@ balancing:
   ancillary_caps:
     per_unit_mw:
       vp_luft_vand: 6.0
-    total_mw: 33.0            # (≠backtest: 15) begge elkedler i drift
+    total_mw: 14.0            # Billunds faktiske prækvalificering (var 33 = fysisk elkedel-sum)
 
 # ------------------------------------------------------------------------------
 # INVESTERING (ikke aktiv i basiscase)
