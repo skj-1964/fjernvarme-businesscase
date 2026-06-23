@@ -813,6 +813,38 @@ def apply_heat_csv_override(
 
 
 # ------------------------------------------------------------------------------
+# Tidsvarierende produktionsprofiler (fx solvarme) — fælles for begge loadere
+# ------------------------------------------------------------------------------
+
+def _attach_unit_profiles(cfg: CaseConfig, ds: xr.Dataset) -> xr.Dataset:
+    """Tilføj 'profile_<unit>' for hver aktiv enhed med production_profile_path.
+
+    For hver aktiv enhed med en profil-CSV: læs filen, reindekser til ds'
+    tidsindeks (fill 0.0 udenfor dækning), og tilføj som datavariabel
+    'profile_<unit>' i datasættet. model.build_model bruger disse til at sætte
+    et tidsvarierende produktionsloft.
+
+    Gotcha: profilen reindekseres på EKSAKT tidsstempel. CSV'en skal derfor
+    dække kørslens periode/år — ellers bliver loftet 0 (fill) for de timer.
+    """
+    target_idx = pd.DatetimeIndex(ds.time.values)
+    for unit_name, unit in cfg.units.items():
+        if not unit.enabled or unit.production_profile_path is None:
+            continue
+        path = Path(unit.production_profile_path)
+        if not path.is_absolute():
+            path = Path.cwd() / path
+        df = pd.read_csv(path, parse_dates=["time"])
+        df["time"] = pd.to_datetime(df["time"], utc=True).dt.tz_convert(None)
+        s = (
+            df.set_index("time").sort_index().iloc[:, 0]
+              .reindex(target_idx, fill_value=0.0)
+        )
+        ds = ds.assign({f"profile_{unit_name}": ("time", s.values)})
+    return ds
+
+
+# ------------------------------------------------------------------------------
 # Orkestrator: rigtig temperatur + spot + syntetisk varmelast
 # ------------------------------------------------------------------------------
 
@@ -912,6 +944,8 @@ def load_external_data(
         ds = apply_heat_csv_override(
             ds, heat_csv, column=heat_csv_column, tz=heat_csv_tz,
         )
+
+    ds = _attach_unit_profiles(cfg, ds)
 
     return ds
 

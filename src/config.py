@@ -211,6 +211,10 @@ class Unit:
     co2_emissions_per_mwh_fuel: float = 0.0       # t CO2 / MWh brændsel
     ancillary: Ancillary = field(default_factory=Ancillary)
     cop_curve: Optional[COPCurve] = None          # valgfri — overruler alpha for VP
+    # Tidsvarierende kapacitetsloft via CSV (MW pr. time). Når sat, bygges
+    # produktionsloftet som min(profil(t), p_max_heat) i model.py — bruges til
+    # vejr-drevne enheder som solvarme. None = skalart p_max_heat-loft (uændret).
+    production_profile_path: Optional[str] = None
     commissioned: Optional[int] = None
     notes: str = ""
     enabled: bool = True                          # false → enheden udelades helt fra modellen
@@ -225,7 +229,7 @@ class Unit:
     def __post_init__(self):
         if self.p_min_heat > self.p_max_heat:
             raise ValueError(f"{self.name}: p_min > p_max")
-        if self.fuel not in ("electricity",) and self.eta_fuel_to_heat is None:
+        if self.fuel not in ("electricity", "solar") and self.eta_fuel_to_heat is None:
             raise ValueError(f"{self.name}: brændselsenhed mangler eta_fuel_to_heat")
         # cop_curve giver kun mening for elforbrugende VP'er
         if self.cop_curve is not None:
@@ -312,6 +316,7 @@ class Prices:
             "straw": self.straw,
             "waste_heat": self.waste_heat,
             "flis": self.flis,
+            "solar": 0.0,            # gratis input — marginalomkostning kortsluttes i model.py
         }
         if fuel not in mapping:
             raise KeyError(f"Ukendt brændsel: {fuel}")

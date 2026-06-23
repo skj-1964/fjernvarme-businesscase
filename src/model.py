@@ -55,6 +55,11 @@ def compute_marginal_cost(
     spot = data["spot_price"]
     om = unit.var_om
 
+    if unit.fuel == "solar":
+        # Gratis solindfald. Marginalomkostning = kun var_om (typisk 0).
+        # Loftet på produktionen sættes via production_profile (se build_model).
+        return xr.full_like(spot, om)
+
     if unit.fuel == "electricity":
         # Rent elforbrugende enhed (VP, elkedel)
         if unit.cop_curve is not None:
@@ -143,13 +148,34 @@ def build_model(cfg: CaseConfig, data: xr.Dataset) -> lp.Model:
     # --------------------------------------------------------------------------
     # Variable: produktion
     # --------------------------------------------------------------------------
+    # 2D-loft (unit, time): enheder med production_profile_path får et
+    # tidsvarierende loft min(profil(t), p_max_heat); enheder uden profil får
+    # deres skalare p_max_heat broadcastet over tid (= uændret adfærd).
+    # Produktionen er fri til at ligge UNDER loftet, så curtailment er tilladt
+    # (afgørende for sommertimer hvor tanken er fuld).
+    p_max_2d = np.zeros((len(unit_names), len(time_coord)))
+    for i, u in enumerate(unit_names):
+        unit = cfg.units[u]
+        if unit.production_profile_path is not None:
+            key = f"profile_{u}"
+            if key not in data.data_vars:
+                raise ValueError(
+                    f"{u}: production_profile_path sat, men profil mangler i "
+                    f"data ('{key}'). Tjek at data_loader._attach_unit_profiles "
+                    f"er kørt og at CSV'en dækker kørslens periode."
+                )
+            p_max_2d[i, :] = np.minimum(
+                np.asarray(data[key].values, dtype=float), unit.p_max_heat
+            )
+        else:
+            p_max_2d[i, :] = unit.p_max_heat
     p_max = xr.DataArray(
-        [cfg.units[u].p_max_heat for u in unit_names],
-        coords={"unit": unit_names}, dims="unit",
+        p_max_2d,
+        coords=[("unit", unit_names), ("time", time_coord)],
     )
     heat_prod = m.add_variables(
         lower=0.0,
-        upper=p_max,                        # broadcastes over time
+        upper=p_max,
         coords=[("unit", unit_names), ("time", time_coord)],
         name="heat_prod",
     )

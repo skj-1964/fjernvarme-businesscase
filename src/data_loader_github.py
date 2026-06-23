@@ -44,6 +44,7 @@ from .config import CaseConfig
 from .data_loader import (
     DEFAULT_EUR_DKK,
     HeatLoadParams,
+    _attach_unit_profiles,
     apply_heat_csv_override,
     make_time_index,
     synthesize_heat_load,
@@ -509,5 +510,7 @@ def load_external_data_github(
         ds = apply_heat_csv_override(
             ds, heat_csv, column=heat_csv_column, tz=heat_csv_tz,
         )
+
+    ds = _attach_unit_profiles(cfg, ds)
 
     return ds
