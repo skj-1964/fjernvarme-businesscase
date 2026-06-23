@@ -4,8 +4,9 @@
 # Andeby er et FIKTIVT referenceværk til regulerings-analyser (afgifter,
 # tariffer m.m.). Det er afledt af cases/billund_2025.yaml (samme maskine:
 # heat-syntese, activation_value-balancering, ancillary-config), men med et
-# andet anlæg: ingen biomasse, en solvarmepark, og en flåde skaleret til et
-# mindre værk (~100 GWh mod Billunds ~127,5 GWh, faktor 0,784).
+# andet anlæg: en halmkedel (12 MW) som grundlast, en solvarmepark, og en
+# flåde skaleret til et mindre værk (~100 GWh mod Billunds ~127,5 GWh,
+# faktor 0,784).
 #
 # NYT i denne case: enhedstypen solar_thermal (fuel: "solar"). Solvarmens
 # leverbare effekt bindes af en tidsvarierende profil-CSV
@@ -16,8 +17,9 @@
 # KØRES MED (regulerings-brug = uden balancering, så varmeprisen er ren):
 #   python run_case.py cases/andeby.yaml --data-source github
 #
-# Forventning: LP (ingen UC-enheder — halm/flis er fjernet), solvarme-andel
-# ≈ 12 % af varmeproduktionen, sommer-curtailment når tanken er fuld.
+# Forventning: MILP (halmkedlen er en UC-enhed med min-uptime/p_min),
+# halmkedel som grundlast (~55 % af varmeproduktionen), solvarme-andel
+# ≈ 12 %, sommer-curtailment når tanken er fuld.
 #
 # INLINE-MARKØRER: [BEKRÆFT] = arvet fra billund_2025 og ikke kalibreret til
 # Andeby (fiktivt værk, men hold tallene plausible).
@@ -26,9 +28,10 @@
 meta:
   case_name: "andeby"
   description: >
-    Fiktivt referenceværk til regulerings-analyser. Ingen biomasse; solvarme
-    (profil-drevet loft via solar_thermal-enhedstypen); flåde skaleret til
-    ~100 GWh. Afledt af billund_2025 (faktor 0,784 på heat_load-parametrene).
+    Fiktivt referenceværk til regulerings-analyser. Halmkedel (12 MW) som
+    grundlast; solvarme (profil-drevet loft via solar_thermal-enhedstypen);
+    flåde skaleret til ~100 GWh. Afledt af billund_2025 (faktor 0,784 på
+    heat_load-parametrene).
   titel: "Andeby — fiktivt referenceværk"
   gruppe: "andeby"
   timezone_internal: "UTC"
@@ -140,9 +143,9 @@ units:
       fcr_qualified: false
     commissioned: 2025
 
-  # ---- Elkedel A (12 MW) ----
+  # ---- Elkedel A (12 MW) — udskiftet med halmkedel som grundlast ----
   elkedel_gl:
-    enabled: true
+    enabled: false
     type: "electric_boiler"
     p_max_heat: 12.0
     p_min_heat: 0.0
@@ -159,7 +162,7 @@ units:
       fcr_qualified: false
     commissioned: 2021
 
-  # ---- Ingen biomasse på Andeby — fliskedel/halmkedel fjernet ----
+  # ---- Biomasse: halmkedel (12 MW) er grundlast; fliskedel fjernet ----
   fliskedel:
     enabled: false
     type: "biomass_boiler"
@@ -178,7 +181,7 @@ units:
     commissioned: 2009
 
   halmkedel:
-    enabled: false
+    enabled: true
     type: "biomass_boiler"
     p_max_heat: 12.0
     p_min_heat: 4.0
