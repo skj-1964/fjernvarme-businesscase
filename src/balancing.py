@@ -107,6 +107,8 @@ class _MarketSpec:
     act_value_key: str = ""
     act_payment_key: str = ""
     clear_fraction_key: str = ""
+    # Nøgle til reservation_gate-config pr. marked ('afrr' | 'mfrr').
+    gate_key: str = ""
 
 
 _AFRR = _MarketSpec(
@@ -120,6 +122,7 @@ _AFRR = _MarketSpec(
     act_value_key="afrr_activation_value_up",
     act_payment_key="afrr_activation_payment_up",
     clear_fraction_key="afrr_clear_fraction_up",
+    gate_key="afrr",
 )
 
 _MFRR = _MarketSpec(
@@ -133,6 +136,7 @@ _MFRR = _MarketSpec(
     act_value_key="mfrr_activation_value_up",
     act_payment_key="mfrr_activation_payment_up",
     clear_fraction_key="mfrr_clear_fraction_up",
+    gate_key="mfrr",
 )
 
 MARKETS: tuple[_MarketSpec, ...] = (_AFRR, _MFRR)
@@ -481,6 +485,78 @@ def _add_shared_cap_constraint(
 
 
 # ---------------------------------------------------------------------------
+# CM-pris-gate på reservationen (Spor B = driven, Spor A = bound)
+# ---------------------------------------------------------------------------
+
+def _add_reservation_gate(
+    m: lp.Model,
+    gate,  # ReservationGate
+    market: _MarketSpec,
+    var_by_unit: dict[str, lp.Variable],
+    data: xr.Dataset,
+) -> None:
+    """Knyt reservationen til markedets day-ahead CM-pris via en gate.
+
+    For hvert interval t er gaten åben når CM_m(t) ≥ τ_m. Blokken B_m
+    reserveres (samlet over markedets enheder) som en EKSOGEN serie:
+
+        block_series(t) = B_m   hvis  CM_m(t) ≥ τ_m   ellers 0
+
+    mode == 'driven' (Spor B):  Σ_i r_m[i,t] == block_series(t)
+        Reservationen drives af gaten — blokken reserveres hver gang gaten
+        er åben, capped af footroom via de eksisterende footroom-constraints.
+        Equality (ikke ≤) fjerner MILP'ens frihed til at cherry-picke kun
+        aktiverings-hale-timerne inden i de gate-åbne intervaller; eksogent
+        drevet reservation er hele pointen i det deskriptive spor.
+
+    mode == 'bound' (Spor A):   Σ_i r_m[i,t] ≤ block_series(t)
+        Gaten er en øvre grænse; MILP'en optimerer frit i gate-vinduet.
+
+    CM-prisen (cap_price_key) er allerede indlæst og timeopløst — samme
+    tidsakse som reservationsvariablen. Ingen nye binære variable: gaten er
+    en data-afhængig parameter, så block_series er forberegnet og eksogen.
+    """
+    mkt_cfg = gate.market_cfg(market.gate_key)
+    if mkt_cfg is None:
+        return
+    if not var_by_unit:
+        return
+    if market.cap_price_key not in data.data_vars:
+        return
+
+    price_cap = data[market.cap_price_key]              # DKK/MW/h, dim time
+    threshold = float(mkt_cfg.cm_threshold_dkk_mw_h)
+    block = float(mkt_cfg.block_mw)
+
+    gate_open = price_cap >= threshold                  # bool DataArray, dim time
+    block_series = xr.where(gate_open, block, 0.0)      # eksogen MW-serie
+
+    # Samlet reservation over markedets enheder.
+    total = None
+    for r in var_by_unit.values():
+        total = r if total is None else (total + r)
+
+    if gate.mode == "driven":
+        m.add_constraints(
+            total == block_series,
+            name=f"{market.var_prefix}_gate_driven",
+        )
+    else:  # 'bound'
+        m.add_constraints(
+            total <= block_series,
+            name=f"{market.var_prefix}_gate_bound",
+        )
+
+    freq = float(gate_open.mean())
+    cm_open = float(price_cap.where(gate_open).mean()) if freq > 0 else 0.0
+    print(
+        f"  {market.label}: CM-gate ({gate.mode}) τ={threshold:.0f} DKK/MW/h, "
+        f"blok={block:.1f} MW → gate-åben {freq*100:.1f}% af intervaller "
+        f"(gns CM når åben={cm_open:.0f}), MW-snit≈{freq*block:.2f} MW"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Hovedfunktion — tilføjer reserver til modellen
 # ---------------------------------------------------------------------------
 
@@ -593,6 +669,19 @@ def add_balancing_reserves(
             _add_shared_cap_constraint(m, caps.total_mw, afrr_vars, mfrr_vars)
     elif shared_cap is not None:
         _add_shared_cap_constraint(m, shared_cap, afrr_vars, mfrr_vars)
+
+    # CM-pris-gate på reservationen (Spor B = driven, Spor A = bound). Når
+    # aktiv binder gaten typisk før det samlede loft, så cap-niveauet bliver
+    # ~irrelevant — det er en bekræftelse i sig selv.
+    gate = getattr(cfg, "reservation_gate", None)
+    if gate is not None and gate.enabled:
+        print(
+            f"  Reservation-gate AKTIV (mode={gate.mode}): reservationen "
+            f"styres af day-ahead CM-prisen pr. marked."
+        )
+        market_vars = {"aFRR": afrr_vars, "mFRR": mfrr_vars}
+        for market in MARKETS:
+            _add_reservation_gate(m, gate, market, market_vars[market.label], data)
 
     # Totale udtryk (summer over aktive markeder)
     total_capacity = 0

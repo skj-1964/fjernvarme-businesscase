@@ -100,6 +100,60 @@ class AncillaryCaps:
 
 
 @dataclass
+class ReservationGateMarket:
+    """Gate-parametre for ét marked (aFRR eller mFRR).
+
+    cm_threshold_dkk_mw_h: tærskel τ_m på day-ahead kapacitetsprisen (CM).
+        Gaten er åben i intervaller hvor CM_m(t) ≥ τ_m.
+    block_mw: blok-niveau B_m [MW el] der reserveres når gaten er åben.
+    """
+    cm_threshold_dkk_mw_h: float
+    block_mw: float
+
+
+@dataclass
+class ReservationGate:
+    """CM-pris-gate på reservationen (Spor B = deskriptiv, Spor A = normativ).
+
+    Empirisk fund (jf. notat_sporB_design): Billunds reservation er en gate på
+    markedets day-ahead kapacitetspris (CM). For hvert marked m og interval t:
+
+        gate_m(t) = 1  hvis  CM_m(t) ≥ τ_m   ellers 0
+
+    mode styrer hvordan gaten kobles til reservationsvariablen:
+
+      'driven' (Spor B, deskriptiv): reservationen DRIVES af gaten —
+          Σ_i r_m[i,t] == gate_m(t) · B_m
+        Blokken reserveres hver gang CM ≥ τ (capped af footroom via de
+        eksisterende footroom-constraints). Eksogent drevet, så en
+        perfekt-foresight-MILP IKKE kan cherry-picke kun aktiverings-
+        hale-timerne inden i de gate-åbne intervaller.
+
+      'bound' (Spor A, normativ — bygget, men ikke kørt nu): gaten er en
+          øvre grænse — Σ_i r_m[i,t] ≤ gate_m(t) · B_m
+        MILP'en optimerer frit inden for gate-vinduet (med forventet CM-pris
+        og τ = opportunity cost).
+
+    Tærsklerne er afledte parametre (Q1-2026-snit), ikke rådata.
+    """
+    enabled: bool = False
+    mode: str = "driven"                          # 'driven' (Spor B) | 'bound' (Spor A)
+    afrr: Optional[ReservationGateMarket] = None
+    mfrr: Optional[ReservationGateMarket] = None
+
+    def __post_init__(self):
+        if self.mode not in ("driven", "bound"):
+            raise ValueError(
+                f"reservation_gate.mode skal være 'driven' eller 'bound', "
+                f"fik {self.mode!r}"
+            )
+
+    def market_cfg(self, gate_key: str) -> Optional[ReservationGateMarket]:
+        """Returnér markedets gate-config ('afrr' | 'mfrr') eller None."""
+        return getattr(self, gate_key, None)
+
+
+@dataclass
 class COPCurve:
     """
     COP(T_ambient) for varmepumper — lineær approksimation (trin 2).
@@ -307,6 +361,10 @@ class CaseConfig:
     # (altid håndhævet) + ét samlet loft. shared_reserve_cap_mw bevares for
     # bagudkompatibilitet med eksisterende cases.
     ancillary_caps: Optional["AncillaryCaps"] = None
+    # CM-pris-gate på reservationen (Spor B/A). None/enabled=False = gammel
+    # adfærd (kontinuerlig reservation op til loftet). Når enabled binder gaten
+    # før det samlede loft (total_mw), så cap-niveauet bliver ~irrelevant.
+    reservation_gate: Optional["ReservationGate"] = None
 
 
 # ------------------------------------------------------------------------------
@@ -500,6 +558,25 @@ def load_case(
         else None
     )
 
+    # CM-pris-gate på reservationen (Spor B/A). Ren config-blok under balancing.
+    gate_raw = bal_raw.get("reservation_gate")
+    reservation_gate = None
+    if gate_raw:
+        def _market_gate(key: str) -> Optional[ReservationGateMarket]:
+            mk = gate_raw.get(key)
+            if not mk:
+                return None
+            return ReservationGateMarket(
+                cm_threshold_dkk_mw_h=float(mk["cm_threshold_dkk_mw_h"]),
+                block_mw=float(mk["block_mw"]),
+            )
+        reservation_gate = ReservationGate(
+            enabled=bool(gate_raw.get("enabled", False)),
+            mode=gate_raw.get("mode", "driven"),
+            afrr=_market_gate("afrr"),
+            mfrr=_market_gate("mfrr"),
+        )
+
     return CaseConfig(
         meta=raw["meta"],
         time=time,
@@ -513,4 +590,5 @@ def load_case(
         balancing_method=balancing_method,
         bid_strategy=bid_strategy,
         ancillary_caps=ancillary_caps,
+        reservation_gate=reservation_gate,
     )

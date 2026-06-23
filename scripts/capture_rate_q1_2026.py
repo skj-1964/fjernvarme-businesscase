@@ -11,9 +11,15 @@ pr. marked og samlet — den empiriske haircut.
 
 Kør:
     .venv/bin/python scripts/capture_rate_q1_2026.py <dispatch.nc>
+    .venv/bin/python scripts/capture_rate_q1_2026.py <dispatch.nc> --case cases/billund_sporB_q1_2026.yaml
+
+Default-casen er backtest-casen (perfekt-foresight-baseline, STATUS v3). Med
+--case <Spor B-case> sammenlignes den CM-gatede (driven) reservation mod samme
+facit — så capture-rate-løftet fra gaten kan aflæses direkte (STATUS v4).
 """
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -28,7 +34,7 @@ from src.data_loader import load_heat_load_params
 from src.data_loader_github import load_external_data_github
 from src.balancing import MARKETS
 
-CASE = "cases/billund_backtest_jan_apr_2026.yaml"
+DEFAULT_CASE = "cases/billund_backtest_jan_apr_2026.yaml"
 FACIT = "noter/billund_balance_facit_Q1_2026_tidy.csv"
 START, END = "2026-01-01", "2026-04-30"
 
@@ -47,13 +53,21 @@ def load_facit() -> pd.DataFrame:
 
 
 def main():
-    nc = sys.argv[1] if len(sys.argv) > 1 else None
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("dispatch", nargs="?", default=None,
+                    help="Sti til dispatch .nc (default: nyeste i output/backtest_q1_cap14)")
+    ap.add_argument("--case", default=DEFAULT_CASE,
+                    help=f"Case-YAML (default: {DEFAULT_CASE})")
+    args = ap.parse_args()
+
+    CASE = args.case
+    nc = args.dispatch
     if nc is None:
         cands = sorted(Path("output/backtest_q1_cap14").glob("*_dispatch.nc"))
         nc = str(cands[-1]) if cands else None
     if not nc or not Path(nc).exists():
         raise SystemExit(f"Dispatch .nc ikke fundet: {nc}")
-    print(f"Loader dispatch: {nc}")
+    print(f"Loader dispatch: {nc}  (case: {CASE})")
     result = xr.open_dataset(nc)
 
     cfg = load_case(CASE)
@@ -163,7 +177,7 @@ def main():
     print(f"  Facit realiseret balance (FORB Op, akt+kap), jan-apr: "
           f"{fac_total/1e6:.3f} mio DKK")
 
-    out = Path("output/backtest_q1_cap14/capture_rate_detail.csv")
+    out = Path(nc).parent / "capture_rate_detail.csv"
     m.to_csv(out, index=False)
     print(f"\nGemt: {out}")
 
