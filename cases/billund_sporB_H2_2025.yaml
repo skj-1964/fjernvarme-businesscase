@@ -1,0 +1,306 @@
+# ==============================================================================
+# BILLUND VARMEVÆRK — Spor B (deskriptiv): CM-pris-gate, H2 2025 (RENT VINDUE)
+# ==============================================================================
+# Afledt af billund_sporB_q1_2026.yaml. Formål (handoff v8): rekalibrér
+# reservation_gate mod H2 2025-facit (seks RENE måneder uden indkøringsanomali),
+# og test out-of-sample på mar–apr 2026. v7 viste at Q1-snit-kalibreringen var
+# forurenet af jan–feb-indkøringsanomalien (gaten under-reserverede).
+#
+# FLÅDE H2 2025 (vigtigt — skift ift. 2026):
+#   * vp_luft_vand: SLET IKKE i drift (enabled: false) — hverken varme eller
+#     balance. Steen-bekræftet. (2026: VP i drift, på balance fra 1. marts.)
+#   * elkedel_ny: under indkøring, kører ikke (enabled: false).
+#   * Reservationen bæres derfor 100 % af elkedel_gl (15 MW el).
+#
+# FACIT-MØNSTER H2 2025 (FORB Op, kap_MW_snit) — kraftigt aFRR-vægtet:
+#   aFRR: jul 5,38 / aug 4,63 / sep 5,84 / okt 3,48 / nov 3,78 / dec 0,50
+#   mFRR: jul 0,04 / aug 0,11 / sep 0,21 / okt 0,06 / nov 0,12 / dec 0,04
+#   (vidt forskelligt fra Q1 2026, hvor aFRR≈mFRR≈0,5–1,2 MW.)
+#
+# KØRES MED:
+#   python run_case.py cases/billund_sporB_H2_2025.yaml \
+#       --data-source github --with-balancing --balancing-method activation_value \
+#       --start 2025-07-01 --end 2025-12-31 \
+#       --heat-csv data/billund_abvaerk_hourly.csv --out-dir out/sporB_H2_2025
+#
+# KALIBRERING: scripts/calibrate_gate.py fitter cm_threshold + block_mw pr.
+#   marked mod H2-facit (månedlig reservation). VALIDERING:
+#   scripts/capture_rate.py --facit noter/billund_balance_facit_H2_2025_tidy.csv
+# ==============================================================================
+
+meta:
+  case_name: "billund_sporB_H2_2025"
+  description: >
+    Spor B (deskriptiv): CM-pris-gate (mode=driven) på reservationen, H2 2025
+    (rent vindue, ingen indkøringsanomali). VP slet ikke i drift; reservation
+    100 % på elkedel_gl. Gate-tærskler rekalibreret mod H2 2025-facit og testet
+    out-of-sample på mar–apr 2026 (flåde-invariant via block/cap-andel).
+  timezone_internal: "UTC"
+  timezone_reporting: "Europe/Copenhagen"
+  discount_rate_real: 0.035
+  tax_year: 2025
+
+# ------------------------------------------------------------------------------
+# TIDSHORISONT
+# ------------------------------------------------------------------------------
+time:
+  start: "2025-07-01T00:00:00Z"
+  end:   "2025-12-31T23:00:00Z"
+  resolution: "1h"
+
+# ------------------------------------------------------------------------------
+# VARMELAST-SYNTESE (parses men ignoreres når --heat-csv er aktivt)
+# ------------------------------------------------------------------------------
+heat_load_params:
+  gaf_mw_per_k: 0.9761
+  t_ref: 15.0
+  thermal_inertia_hours: 24
+  nettab_slope_mw_per_k: 0.6081
+  t_net: 12.0
+  baseline_profile_mw:
+    [5.66, 5.74, 5.87, 6.08, 6.15, 6.52,
+     7.13, 7.15, 6.83, 6.32, 6.09, 5.99,
+     5.82, 5.70, 5.63, 5.56, 5.65, 5.87,
+     6.03, 6.08, 6.04, 6.03, 5.88, 5.60]
+  weekly_dip: 0.02
+  _source: "Kalibreret mod Billund ab værk — ignoreres ved --heat-csv"
+
+# ------------------------------------------------------------------------------
+# PRISER OG AFGIFTER  (BEKRÆFT: kopieret fra H2 2025 — opdatér til Q1 2026)
+# ------------------------------------------------------------------------------
+prices:
+  natural_gas:
+    value: 550.0           # 3 kr/Nm3 commodity (ekskl moms) + kedel-afgifter 3,5349 kr/Nm3 (faktura, ekskl moms) ÷ 11,881 kWh/Nm3
+    unit: "DKK/MWh_fuel"
+  straw:
+    value: 204.6           # 1.030 kr/ton inkl moms ÷ 1,25 ÷ 14,5 GJ/ton × 3,6 (ekskl moms)
+    unit: "DKK/MWh_fuel"
+  flis:
+    value: 195.8           # 68,0 kr/GJ inkl moms ÷ 1,25 × 3,6 (ekskl moms) — egen pris, ikke længere lig halm
+    unit: "DKK/MWh_fuel"
+  waste_heat:
+    value: 50.0
+    unit: "DKK/MWh_fuel"
+  co2_eua:
+    value: 0.0
+    unit: "DKK/MWh_gas"
+
+# ------------------------------------------------------------------------------
+# ELMARKED OG TARIFFER
+# ------------------------------------------------------------------------------
+electricity:
+  spot_area: "DK1"
+  tariff_consumption_flat: 125.0
+  tariff_production_flat: 4.1
+  electricity_tax: 4.0
+
+# ------------------------------------------------------------------------------
+# PRODUKTIONSENHEDER
+# ------------------------------------------------------------------------------
+units:
+
+  vp_luft_vand:
+    enabled: false          # H2 2025: VP SLET ikke i drift (hverken varme el. balance) — Steen
+    type: "heat_pump"
+    p_max_heat: 16.0
+    p_min_heat: 0.0
+    alpha: -0.333
+    fuel: "electricity"
+    var_om: 13.4
+    start_cost: 0.0
+    min_uptime: 1
+    min_downtime: 1
+    uc_enabled: false
+    cop_curve:
+      type: linear
+      a: 2.2
+      b: 0.08
+      cop_min: 1.8
+      cop_max: 4.0
+    ancillary:
+      afrr_qualified: true
+      mfrr_qualified: true
+      fcr_qualified: false
+    commissioned: 2025
+
+  # ---- Elkedel ny (30 MW) — IKKE i drift jan–apr 2026 (under inkøring) ----
+  elkedel_ny:
+    enabled: false
+    type: "electric_boiler"
+    p_max_heat: 30.0
+    p_min_heat: 0.0
+    alpha: -1.0
+    fuel: "electricity"
+    var_om: 13.4
+    start_cost: 0.0
+    min_uptime: 1
+    min_downtime: 1
+    uc_enabled: false
+    ancillary:
+      afrr_qualified: true
+      mfrr_qualified: true
+      fcr_qualified: false
+    commissioned: 2026
+    notes: "Under inkøring jan–apr 2026 — ikke i drift. Reserve-loftet (14 MW) er Billunds prækvalificering og er uafhængigt af denne enheds enabled-flag."
+
+  elkedel_gl:
+    enabled: true
+    type: "electric_boiler"
+    p_max_heat: 15.0
+    p_min_heat: 0.0
+    alpha: -1.0
+    fuel: "electricity"
+    var_om: 6.71
+    start_cost: 0.0
+    min_uptime: 1
+    min_downtime: 1
+    uc_enabled: false
+    ancillary:
+      afrr_qualified: true
+      mfrr_qualified: true
+      fcr_qualified: false
+    commissioned: 2021
+
+  fliskedel:
+    enabled: true
+    type: "biomass_boiler"
+    p_max_heat: 7.0
+    p_min_heat: 2.5           # Billund-bekræftet min-last (~36% af 7 MW)
+    alpha: 0.0
+    fuel: "flis"
+    eta_fuel_to_heat: 0.94    # John
+    var_om: 30.0              # ANTAGET = halm — bekræft
+    start_cost: 5000.0        # ANTAGET — bekræft
+    min_uptime: 168           # Billund: skal mindst køre 1 uge (168 timer) ad gangen
+    min_downtime: 6
+    uc_enabled: true
+    initial_status: 1
+    ancillary: {afrr_qualified: false, mfrr_qualified: false, fcr_qualified: false}
+    commissioned: 2009
+
+  halmkedel:
+    enabled: true
+    type: "biomass_boiler"
+    p_max_heat: 12.0
+    p_min_heat: 4.0
+    alpha: 0.0
+    fuel: "straw"
+    eta_fuel_to_heat: 0.96
+    var_om: 30.0
+    start_cost: 8000.0
+    min_uptime: 4
+    min_downtime: 6
+    uc_enabled: true
+    initial_status: 1
+    ancillary: {afrr_qualified: false, mfrr_qualified: false, fcr_qualified: false}
+    commissioned: 2015
+
+  gasmotor:
+    enabled: true
+    type: "gas_engine_chp"
+    p_max_heat: 2.8
+    p_min_heat: 0.9
+    alpha: 0.72
+    fuel: "natural_gas"
+    eta_fuel_to_heat: 0.49
+    var_om: 608.0
+    start_cost: 2000.0
+    min_uptime: 2
+    min_downtime: 2
+    uc_enabled: false
+    initial_status: 0
+    co2_emissions_per_mwh_fuel: 0.0
+    ancillary:
+      afrr_qualified: true
+      mfrr_qualified: true
+      fcr_qualified: false
+      afrr_max_bid_mw: 1.0
+      mfrr_max_bid_mw: 2.0
+    commissioned: 2000
+
+  gaskedel_agg:
+    enabled: true
+    type: "gas_boiler"
+    p_max_heat: 16.3
+    p_min_heat: 0.0
+    alpha: 0.0
+    fuel: "natural_gas"
+    eta_fuel_to_heat: 0.95
+    var_om: 89.0
+    start_cost: 500.0
+    min_uptime: 1
+    min_downtime: 1
+    uc_enabled: false
+    co2_emissions_per_mwh_fuel: 0.0
+    ancillary: {afrr_qualified: false, mfrr_qualified: false, fcr_qualified: false}
+
+  overskudsvarme:
+    enabled: false
+    type: "waste_heat"
+    p_max_heat: 4.0
+    p_min_heat: 4.0
+    alpha: 0.0
+    fuel: "waste_heat"
+    eta_fuel_to_heat: 1.0
+    var_om: 5.0
+    start_cost: 0.0
+    min_uptime: 1
+    min_downtime: 1
+    uc_enabled: false
+    ancillary: {afrr_qualified: false, mfrr_qualified: false, fcr_qualified: false}
+    commissioned: 2026
+
+# ------------------------------------------------------------------------------
+# VARMELAGER  (BEKRÆFT volumen jan–apr 2026: 12.000 vs 22.000 m³ VAK26)
+# ------------------------------------------------------------------------------
+storage:
+  tank_eksisterende:
+    enabled: true
+    volume_m3: 12000
+    delta_t_k: 40.0
+    e_max_mwh: null
+    e_initial_mwh: 279
+    p_max_charge_mw: 60.0
+    p_max_discharge_mw: 60.0
+    self_discharge_per_hour: 0.0
+    cycle_binding: true
+    notes: "BEKRÆFT volumen for jan–apr 2026 fra driftsvirkelighed."
+
+# ------------------------------------------------------------------------------
+# BALANCEMARKED — activation_value + CM-pris-gate (Spor B, driven)
+# ------------------------------------------------------------------------------
+# reservation_gate (Spor B, deskriptiv):
+#   enabled: true, mode: driven → reservationen DRIVES af CM-gaten:
+#       Σ_i r_m[i,t] == gate_m(t) · block_mw
+#   gate_m(t) = 1 hvis CM_m(t) ≥ cm_threshold_dkk_mw_h ellers 0.
+#   Tærskel + blok REKALIBRERET mod H2 2025-facit (scripts/calibrate_gate.py).
+#   H2-reservationen er kraftigt aFRR-vægtet (snit ~4 MW) og mFRR ~marginal.
+#   Værdierne nedenfor er fit-resultatet (se STATUS v8).
+balancing:
+  method: activation_value
+  bid_strategy:
+    up_markup_dkk_mwh: 500
+    up_markup_max_dkk_mwh: 2000
+  ancillary_caps:
+    per_unit_mw: {}          # VP disabled i H2 → intet per-enheds-loft
+    # H2 2025-prækvalificering [BEKRÆFT]: kun elkedel_gl (15 MW el) bærer reserven.
+    # Handoff §9: H2-loftet ~15 MW. Facit aFRR-peak-måned 5,84 MW-snit → loftet
+    # binder ikke gaten. Bruges som nævner i flåde-invariant block/cap-andel.
+    total_mw: 15.0
+  reservation_gate:
+    enabled: true
+    mode: driven             # driven (Spor B) | bound (Spor A senere)
+    # REKALIBRERET mod H2 2025 (calibrate_gate.py, B≤cap):
+    #   aFRR: τ=50, B=6,39 (42,6% af cap). SVAGT fit (RMSE 1,68 MW, form-korr
+    #     0,30): H2-aFRR var næsten KONTINUERT ~5 MW, ikke en selektiv pris-gate.
+    #     Misser december voldsomt (model 3,87 vs facit 0,50 — adfærds-stop).
+    #   mFRR: τ=900, B=3,44 (22,9% af cap). Godt fit (RMSE 0,027, korr 0,89),
+    #     men marginal volumen.
+    afrr: { cm_threshold_dkk_mw_h: 50, block_mw: 6.39 }
+    mfrr: { cm_threshold_dkk_mw_h: 900, block_mw: 3.44 }
+
+# ------------------------------------------------------------------------------
+# INVESTERING (ikke aktiv i backtest)
+# ------------------------------------------------------------------------------
+investment:
+  enabled: false
