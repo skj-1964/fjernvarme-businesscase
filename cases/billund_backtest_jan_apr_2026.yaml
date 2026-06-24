@@ -74,13 +74,13 @@ heat_load_params:
 # ------------------------------------------------------------------------------
 prices:
   natural_gas:
-    value: 606.0
+    value: 550.0           # 3 kr/Nm3 commodity (ekskl moms) + kedel-afgifter 3,5349 kr/Nm3 (faktura, ekskl moms) ÷ 11,881 kWh/Nm3
     unit: "DKK/MWh_fuel"
   straw:
-    value: 232.0
+    value: 204.6           # 1.030 kr/ton inkl moms ÷ 1,25 ÷ 14,5 GJ/ton × 3,6 (ekskl moms)
     unit: "DKK/MWh_fuel"
   flis:
-    value: 232.0           # John: sættes lig halm
+    value: 195.8           # 68,0 kr/GJ inkl moms ÷ 1,25 × 3,6 (ekskl moms) — egen pris, ikke længere lig halm
     unit: "DKK/MWh_fuel"
   waste_heat:
     value: 50.0
@@ -169,13 +169,13 @@ units:
     enabled: true
     type: "biomass_boiler"
     p_max_heat: 7.0
-    p_min_heat: 2.0           # ANTAGET ~29% — bekræft min-last med John
+    p_min_heat: 2.5           # Billund-bekræftet min-last (~36% af 7 MW)
     alpha: 0.0
     fuel: "flis"
     eta_fuel_to_heat: 0.94    # John
     var_om: 30.0              # ANTAGET = halm — bekræft
     start_cost: 5000.0        # ANTAGET — bekræft
-    min_uptime: 72            # John: skal mindst køre 72 timer ad gangen
+    min_uptime: 168           # Billund: skal mindst køre 1 uge (168 timer) ad gangen
     min_downtime: 6
     uc_enabled: true
     initial_status: 1

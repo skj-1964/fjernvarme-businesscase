@@ -80,19 +80,30 @@ heat_load_params:
 # ------------------------------------------------------------------------------
 prices:
   natural_gas:
-    value: 606.0
+    # Commodity 3,0 kr/Nm3 (Billund, ekskl. moms) + Evida variable afgifter/tariffer
+    # for KEDEL: CO2 1,9420 + naturgasafg. 1,3830 + NOx 0,0100 + volumentarif 0,1340
+    # + nødforsyning 0,0659 = 3,5349 kr/Nm3 (faktura, ekskl. moms).
+    # I alt 6,5349 kr/Nm3 ÷ 11,881 kWh/Nm3 = 550,0 kr/MWh. Faste poster (kapacitets-
+    # tillæg, systemtarif, abonnement, målerbetaling) er bevidst UDELADT — de er ikke
+    # marginale, men hører i business casens P&L. [BEKRÆFT: motoren beskattes lavere
+    # via el-fritagelse (E-formel); deles ud, hvis gasmotoren får betydning.]
+    value: 550.0
     unit: "DKK/MWh_fuel"
   straw:
-    value: 232.0
+    value: 204.6           # Billund: 1.030 kr/ton inkl moms ÷ 1,25 ÷ 14,5 GJ/ton × 3,6 (ekskl. moms)
     unit: "DKK/MWh_fuel"
   flis:
-    value: 232.0
+    value: 195.8           # Billund: 68,0 kr/GJ inkl moms ÷ 1,25 × 3,6 (ekskl. moms, fast hele perioden)
     unit: "DKK/MWh_fuel"
   waste_heat:
     value: 50.0
     unit: "DKK/MWh_fuel"
   co2_eua:
-    value: 600.0           # (≠backtest: var 0) [BEKRÆFT] ~80 EUR/t × 7,45
+    # Nulstillet: den danske CO2-afgift (1,9420 kr/Nm3 ≈ 163 kr/MWh ekskl. moms)
+    # er nu indeholdt i natural_gas-prisen via Evida-afgifterne. Beholdes co2_eua
+    # samtidig, dobbelttælles kulstof. [BEKRÆFT: hvis Billund er omfattet af
+    # EU-ETS, skal ETS-laget lægges oveni her separat — værdi ~80 EUR/t × 7,45.]
+    value: 0.0
     unit: "DKK/MWh_gas"
 
 # ------------------------------------------------------------------------------
@@ -102,7 +113,7 @@ electricity:
   spot_area: "DK1"
   tariff_consumption_flat: 125.0
   tariff_production_flat: 4.1
-  electricity_tax: 4.0
+  electricity_tax: 4.0      # Billund-fastlagt net-sats (reduceret elvarmeafgift)
 
 # ------------------------------------------------------------------------------
 # PRODUKTIONSENHEDER — fuld flåde
@@ -174,13 +185,13 @@ units:
     enabled: true
     type: "biomass_boiler"
     p_max_heat: 7.0
-    p_min_heat: 2.0           # [BEKRÆFT] ~29% min-last
+    p_min_heat: 2.5           # Billund-bekræftet min-last (~36% af 7 MW)
     alpha: 0.0
     fuel: "flis"
     eta_fuel_to_heat: 0.94
     var_om: 30.0              # [BEKRÆFT]
     start_cost: 5000.0        # [BEKRÆFT]
-    min_uptime: 72            # skal mindst køre 72 timer ad gangen
+    min_uptime: 168           # Billund: skal mindst køre 1 uge (168 timer) ad gangen
     min_downtime: 6
     uc_enabled: true
     initial_status: 1
