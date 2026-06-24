@@ -69,6 +69,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
+import numpy as np
 import xarray as xr
 import linopy as lp
 
@@ -258,6 +259,32 @@ def _add_market_reserves(
             name=var_name,
         )
         var_by_unit[unit.name] = r
+
+        # Onset-gate: før available_from må enheden ikke byde reserver.
+        # Bygger en eksogen per-tids øvre grænse (0 før onset, p_el_max fra og
+        # med onset) og binder reserve-variablen til den. Rammer KUN buddet —
+        # varmedispatch er urørt. Enhedens varmedispatch er urørt; gaten
+        # forhindrer kun reservationen i intervaller før idriftsættelsen.
+        onset = getattr(unit.ancillary, "available_from", None)
+        if onset is not None:
+            onset_ts = np.datetime64(str(onset))
+            available = time_coord >= onset_ts          # bool, dim time
+            gate = xr.DataArray(
+                np.where(available, p_el_max, 0.0),
+                coords={"time": time_coord},
+                dims=["time"],
+            )
+            m.add_constraints(
+                r <= gate,
+                name=f"{market.var_prefix}_onset_gate_{unit.name}",
+            )
+            n_open = int(available.sum())
+            n_total = len(time_coord)
+            print(
+                f"  {market.label}: {unit.name} onset-gate available_from="
+                f"{onset} → byder kun {n_open}/{n_total} intervaller "
+                f"({n_open/n_total*100:.1f}%), 0 før onset"
+            )
 
         # Max-bud per enhed og marked (trin A for aFRR, trin B for mFRR).
         # Navngiven constraint for diagnostik; solveren bruger den strammere

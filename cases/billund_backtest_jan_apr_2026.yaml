@@ -26,6 +26,15 @@
 # (aFRR akt/kap, mFRR akt/kap). Forvent at activation_value rammer aFRR-
 # aktivering markant højere end legacy (kovarians-spikene).
 #
+# ANOMALI — VALIDERINGSVINDUE = MARTS 2026 FREM (John):
+#   Jan–feb 2026 var VP-indkøring, og indkøringen påvirkede balance-
+#   indmeldingen PLANT-BREDT (ikke kun VP'en). Jan–feb er derfor en
+#   indkøringsanomali, IKKE repræsentativ drift, og UDELADES af validering.
+#   Bekræftet ved diagnostik (STATUS v7): plant-bred onset → modelleret jan+feb
+#   = 0. Valideringsvinduet er det RENE vindue marts–april 2026 (facit stopper
+#   ved april). VP'ens available_from nedenfor er det eneste reelle anlægs-
+#   faktum; de øvrige enheders jan/feb-nul modelleres IKKE (udelukkes, ikke fit).
+#
 # BEKRÆFT FØR KØRSEL:
 #   - Prisniveauer (gas/halm) er kopieret fra H2 2025 — opdatér med Q1 2026.
 #   - Tankvolumen jan–apr 2026 (12.000 vs 22.000 m³ VAK26) — sæt fra drift.
@@ -125,6 +134,10 @@ units:
       afrr_qualified: true
       mfrr_qualified: true
       fcr_qualified: false
+      # ANLÆGSFAKTUM (John): VP'en gik først på balancemarkedet 1. marts 2026.
+      # Februars nul-deltagelse er en onset/idriftsættelse, ikke en prisrespons.
+      # Gaten nulstiller VP'ens reservation før denne dato; varmedispatch urørt.
+      available_from: "2026-03-01"
     commissioned: 2025
 
   # ---- Elkedel ny (30 MW) — IKKE i drift jan–apr 2026 (under inkøring) ----

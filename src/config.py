@@ -40,6 +40,14 @@ class Ancillary:
     # antagelsen.
     afrr_max_bid_mw: Optional[float] = None
     mfrr_max_bid_mw: Optional[float] = None
+    # Onset/idriftsættelse på balancemarkedet. ISO-dato (fx "2026-03-01").
+    # Når sat gates reservationen (r_afrr + r_mfrr for enheden) til 0 i alle
+    # intervaller FØR denne dato; fra og med datoen er upper-bound = p_el_max
+    # som normalt. Enhedens varmedispatch er urørt — kun budafgivelsen gates.
+    # Modellerer at en enhed først prækvalificeres/idriftsættes på balance på
+    # et bestemt tidspunkt (et anlægsfaktum, ikke en prisrespons). None = altid
+    # tilgængelig (uændret adfærd).
+    available_from: Optional[str] = None
 
 
 @dataclass
