@@ -18,8 +18,8 @@ Design: returnerer altid en xarray.Dataset med koordinat 'time' i UTC (tz-naive)
 Tidsopløsning matcher CaseConfig.time.resolution.
 
 API-kilder:
-  - DMI observationer:   https://www.sysapp.dk/api_dmi_obs.php
-  - Energinet elspot:    https://www.sysapp.dk/api_energinet_prices.php
+  - DMI observationer:   https://api.sysapp.dk/api_dmi_obs.php
+  - Energinet elspot:    https://api.sysapp.dk/api_energinet_prices.php
   - Energi Data Service: https://api.energidataservice.dk (balance-markeder)
 """
 from __future__ import annotations
@@ -43,7 +43,9 @@ from .config import CaseConfig
 # Konstanter
 # ------------------------------------------------------------------------------
 
-API_BASE = "https://www.sysapp.dk"
+# api.sysapp.dk siden 2026-08-04. www.sysapp.dk serverede håndkopier af de
+# samme endpoints; kopierne er nu fjernet, og api_dmi_obs.php svarede 404 der.
+API_BASE = "https://api.sysapp.dk"
 API_LIMIT_MAX = 10_000
 API_TIMEOUT_S = 60
 DEFAULT_EUR_DKK = 7.45  # brug daglig kurs i produktionskørsler
