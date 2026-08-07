@@ -245,7 +245,11 @@ def fetch_dmi_weather_github(
     if df.empty or "hour_utc" not in df.columns:
         raise RuntimeError(f"Ingen DMI-data for area={area!r}, {start}..{end}")
     idx = pd.to_datetime(df["hour_utc"])
-    drop_cols = [c for c in ("hour_utc", "hour_dk") if c in df.columns]
+    # Samme udeladelser som `fetch_dmi_weather`: `area` er en streng, og
+    # `unixtime`/`timestamp` er tidsstempler. Uden dette blev `area` til en
+    # ren NaN-kolonne i den numeriske frame.
+    drop_cols = [c for c in ("hour_utc", "hour_dk", "area", "unixtime", "timestamp")
+                 if c in df.columns]
     out = (
         df.drop(columns=drop_cols)
           .set_index(idx)

@@ -18,7 +18,7 @@ Design: returnerer altid en xarray.Dataset med koordinat 'time' i UTC (tz-naive)
 Tidsopløsning matcher CaseConfig.time.resolution.
 
 API-kilder:
-  - DMI observationer:   https://api.sysapp.dk/api_dmi_obs.php
+  - DMI observationer:   https://api.sysapp.dk/api_dmi_obs_ny.php
   - Energinet elspot:    https://api.sysapp.dk/api_energinet_prices.php
   - Energi Data Service: https://api.energidataservice.dk (balance-markeder)
 """
@@ -373,12 +373,21 @@ def fetch_dmi_obs(
     """
     Hent én DMI-variabel som pd.Series (UTC, tz-naive).
 
-    Bemærk: /api_dmi_obs.php returnerer wide-format — én række pr. time med
+    Bemærk: /api_dmi_obs_ny.php returnerer wide-format — én række pr. time med
     alle variabler som kolonner. Vi plukker `shortname`-kolonnen ud.
+
+    Endpointet kender ikke `shortname`; udvælgelsen sker med `fields`. Vi beder
+    om den ønskede variabel eksplicit, så også `temp_dew` og `wind_dir_past1h`
+    kan hentes — de er ikke med i endpointets standardfelter.
     """
     df = _api_get(
-        "/api_dmi_obs.php",
-        {"shortname": shortname, "startdate": start, "enddate": end, "area": area},
+        "/api_dmi_obs_ny.php",
+        {
+            "startdate": start,
+            "enddate": end,
+            "area": area or "fyn",
+            "fields": f"hour_utc,{shortname}",
+        },
         cache_dir=cache_dir,
         force_refresh=force_refresh,
     )
@@ -415,8 +424,8 @@ def fetch_dmi_weather(
     og gemmer én samlet cache-fil pr. periode.
     """
     df = _api_get(
-        "/api_dmi_obs.php",
-        {"shortname": "temp_mean_past1h", "startdate": start, "enddate": end, "area": area},
+        "/api_dmi_obs_ny.php",
+        {"startdate": start, "enddate": end, "area": area},
         cache_dir=cache_dir,
         force_refresh=force_refresh,
     )
@@ -424,7 +433,10 @@ def fetch_dmi_weather(
         raise RuntimeError(f"Ingen DMI-data for area={area!r}, {start}..{end}")
 
     idx = pd.to_datetime(df["hour_utc"])
-    drop_cols = [c for c in ("hour_utc", "hour_dk") if c in df.columns]
+    # `area` er en streng og `unixtime`/`timestamp` er tidsstempler — de ville
+    # blive til NaN- eller støjkolonner i den numeriske frame nedenfor.
+    drop_cols = [c for c in ("hour_utc", "hour_dk", "area", "unixtime", "timestamp")
+                 if c in df.columns]
     out = df.drop(columns=drop_cols).set_index(idx).apply(pd.to_numeric, errors="coerce")
     out.index.name = "time"
     return out.loc[~out.index.duplicated(keep="first")].sort_index()
