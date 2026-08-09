@@ -388,9 +388,34 @@ def _load_data(args, cfg):
     return generate_dummy_data(cfg)
 
 
+# Skridtlængde pr. modelopløsning. Samme nøgler som make_time_index.
+_RESOLUTION_STEP = {"1h": pd.Timedelta("1h"), "15min": pd.Timedelta("15min")}
+
+
+def _resolution_step(cfg) -> pd.Timedelta:
+    """Modellens skridtlængde, læst af cfg — ikke antaget."""
+    resolution = cfg.time.resolution
+    try:
+        return _RESOLUTION_STEP[resolution]
+    except KeyError:
+        raise ValueError(
+            f"Ukendt cfg.time.resolution={resolution!r}. "
+            f"Kendte: {sorted(_RESOLUTION_STEP)}."
+        ) from None
+
+
+def _end_of_day(day: pd.Timestamp, step: pd.Timedelta) -> pd.Timestamp:
+    """Sidste tidsskridt PÅ den angivne dag.
+
+    1h → 23:00, 15min → 23:45. Opløsningsafhængigt, så aksen dækker hele
+    døgnet uanset skridtlængde.
+    """
+    return day.normalize() + pd.Timedelta(days=1) - step
+
+
 def _apply_time_override(cfg, year: int | None,
                          start: str | None, end: str | None) -> None:
-    """Override analyseperiode i cfg.time.
+    """Override analyseperiode i cfg.time med FULDE timestamps.
 
     Tre varianter:
       1. Ingen override           → cfg.time uændret (bruger YAML-værdier)
@@ -398,8 +423,31 @@ def _apply_time_override(cfg, year: int | None,
       3. --start X --end Y        → fra X til Y (inklusive)
 
     --year og --start/--end er mutuelt eksklusive; --start kræver --end.
-    make_time_index og load_external_data bruger cfg.time direkte, så både
-    tidsakse og API-kald følger automatisk med.
+
+    HVORFOR FULDE TIMESTAMPS
+    ------------------------
+    Tidligere satte denne funktion `cfg.time.end = "YYYY-12-31"`, altså en
+    bar dato. `make_time_index` parser den som midnat, så `--year 2025` gav
+    en akse der sluttede 2025-12-31 00:00 — 8737 timer i stedet for 8760,
+    eller 34945 kvarter i stedet for 35040. De 23 sidste timer af året
+    forsvandt tavst, og efter F1 målte dækningsvagten trofast mod den
+    forkortede akse: kørslen blev både grøn OG verificeret.
+
+    Opløsningen læses af `cfg.time.resolution` (sat af `load_case`, som
+    kaldes før denne funktion i `main`), så slutpunktet bliver 23:00 ved
+    1h og 23:45 ved 15min.
+
+    BAR DATO vs. EKSPLICIT KLOKKESLÆT
+    ---------------------------------
+    `--end 2025-12-31`       → udvides til dagens sidste skridt.
+    `--end 2025-06-15T12:00` → respekteres uændret.
+
+    Markøren er et kolon i strengen. Det er bevidst en fortolkning af
+    BRUGERENS input, truffet én gang på CLI-grænsen — modsat den slettede
+    regel i `_read_dataset`, som gættede på en allerede afledt værdi og
+    gættede forskelligt på to kaldeveje (F1/Gate 3). Her findes ingen mere
+    autoritativ kilde end det brugeren skrev; nedstrøms findes der, og
+    derfor må gætteriet kun ske her.
     """
     # Validér konflikter
     if year is not None and (start is not None or end is not None):
@@ -410,24 +458,27 @@ def _apply_time_override(cfg, year: int | None,
     if (start is None) != (end is None):
         raise ValueError("--start og --end skal bruges sammen (eller slet ikke).")
 
-    if year is not None:
-        cfg.time.start = f"{year}-01-01"
-        cfg.time.end = f"{year}-12-31"
-        print(f"  Override: analyseperiode = {year}-01-01..{year}-12-31")
-        return
+    if year is None and start is None:
+        return  # Ingen override — cfg.time uændret
 
-    if start is not None and end is not None:
-        # Sanity: parse datoer og tjek rækkefølge
+    step = _resolution_step(cfg)
+
+    if year is not None:
+        start_ts = pd.Timestamp(f"{year}-01-01")
+        end_ts = _end_of_day(pd.Timestamp(f"{year}-12-31"), step)
+    else:
         start_ts = pd.Timestamp(start)
         end_ts = pd.Timestamp(end)
+        if ":" not in end:
+            # Bar dato ⇒ brugeren mente hele døgnet.
+            end_ts = _end_of_day(end_ts, step)
         if end_ts <= start_ts:
             raise ValueError(f"--end ({end}) skal være efter --start ({start}).")
-        cfg.time.start = start
-        cfg.time.end = end
-        print(f"  Override: analyseperiode = {start}..{end}")
-        return
 
-    # Ingen override — cfg.time uændret
+    cfg.time.start = start_ts.isoformat()
+    cfg.time.end = end_ts.isoformat()
+    print(f"  Override: analyseperiode = {cfg.time.start}..{cfg.time.end} "
+          f"({cfg.time.resolution})")
 
 
 def _apply_enable_disable(cfg, enable, disable):

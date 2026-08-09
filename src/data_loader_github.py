@@ -46,6 +46,7 @@ from .data_loader import (
     HeatLoadParams,
     _attach_unit_profiles,
     apply_heat_csv_override,
+    assert_coverage,
     make_time_index,
     synthesize_heat_load,
 )
@@ -57,6 +58,29 @@ from .data_loader import (
 
 DEFAULT_DF_DATA_URL = "https://github.com/skj-1964/df-data.git"
 DEFAULT_DF_DATA_CACHE = "data/df-data"
+
+# Krævede observationer pr. time, pr. datasæt. Tabellen er en påstand om
+# KILDENS native opløsning og hører derfor her hos den der ved hvilket
+# datasæt der læses — ikke inde i assert_coverage.
+#
+# Målt i noter/notat_f1_gate05_oploesning_akse.md §A1 mod df-data 6c95bde:
+#   afrr, mfrr_cap        3600 s hele levetiden          → 1
+#   dmi                   3600 s hele levetiden          → 1
+#   spot                  3600 s → 900 s (2025-09-30 22:00); timesbuckets
+#                         gør skiftet ligegyldigt        → 1
+#   imbalance, mfrr_act   900 s hele levetiden           → 4
+#
+# 4 for de to 15-min-datasæt, fordi fetch_balance_prices_github efterfølgende
+# kører resample("1h").mean() på dem: en time med færre end fire kvarter
+# giver et gennemsnit over et ufuldstændigt grundlag uden at det ses.
+_MIN_OBS_PER_HOUR = {
+    "spot":      1,
+    "dmi":       1,
+    "afrr":      1,
+    "mfrr_cap":  1,
+    "imbalance": 4,
+    "mfrr_act":  4,
+}
 
 
 # ------------------------------------------------------------------------------
@@ -106,30 +130,114 @@ def _ensure_df_data_cache(
 # CSV-læser: koncatenerer års-filer og filtrerer på tids-range
 # ------------------------------------------------------------------------------
 
-def _years_in_range(start: str, end: str) -> list[int]:
-    """Liste af kalenderår som [start, end] dækker (begge endpoints inklusive)."""
-    s = pd.Timestamp(start)
-    e = pd.Timestamp(end)
-    return list(range(s.year, e.year + 1))
+def _years_in_range(idx: pd.DatetimeIndex) -> list[int]:
+    """Kalenderår som aksen rører, begge endepunkter inklusive.
+
+    Årsfilerne er navngivet efter UTC-året, og `idx` er UTC (tz-strippet i
+    `make_time_index`), så år udledes direkte af endepunkterne. Det sidste
+    bucket slutter før `idx.max() + step`, så et år mere er aldrig nødvendigt.
+    """
+    return list(range(idx.min().year, idx.max().year + 1))
+
+
+def _axis_step(idx: pd.DatetimeIndex) -> pd.Timedelta:
+    """Aksens skridtlængde.
+
+    Bruger `idx.freq` når den er sat (det er den fra `make_time_index`), og
+    falder ellers tilbage til den entydige differens. Rejser hvis aksen er
+    uregelmæssig — så er der ikke ét bucket-span at måle dækning i.
+    """
+    if idx.freq is not None:
+        return pd.Timedelta(idx.freq.nanos, unit="ns")
+    if len(idx) < 2:
+        raise ValueError(
+            "Kan ikke udlede skridtlængde af en akse med under to punkter."
+        )
+    diffs = pd.Series(idx).diff().dropna().unique()
+    if len(diffs) != 1:
+        raise ValueError(
+            f"Uregelmæssig tidsakse: fandt {len(diffs)} forskellige skridt "
+            f"({sorted(pd.to_timedelta(diffs))[:5]}). Dækning kan kun måles "
+            "i buckets af ét span."
+        )
+    return pd.Timedelta(diffs[0])
+
+
+# Skridtlængde → bucket-navn som `assert_coverage` forstår. Ukendte skridt
+# sendes videre som deres str(), så vagten kan afvise dem med et læsbart navn.
+_STEP_BUCKET = {
+    pd.Timedelta("1h"): "1h",
+    pd.Timedelta("15min"): "15min",
+}
 
 
 def _read_dataset(
     repo_root: Path,
     folder: str,
     zone_or_area: str,
-    start: str,
-    end: str,
+    idx: pd.DatetimeIndex,
     time_col: str,
 ) -> pd.DataFrame:
     """
-    Læs én eller flere års-CSV'er for et dataset og koncatener, filtreret til
-    [start, end). Kolonnesæt bevares som i kilde-CSV.
+    Læs én eller flere års-CSV'er for et dataset og koncatener, afgrænset til
+    modellens akse. Kolonnesæt bevares som i kilde-CSV.
 
-    folder       : 'spot', 'afrr', 'mfrr_cap', 'mfrr_act', 'imbalance', 'dmi'
-    zone_or_area : 'DK1', 'DK2', 'fyn', 'vestkyst', ...
-    time_col     : 'hour_utc' (proxy-datasets) eller 'TimeUTC' (EDS-datasets)
+    Args:
+        repo_root:    df-data-klonens rod.
+        folder:       'spot', 'afrr', 'mfrr_cap', 'mfrr_act', 'imbalance', 'dmi'
+        zone_or_area: 'DK1', 'DK2', 'fyn', 'vestkyst', ...
+        idx:          Modellens tidsakse fra `make_time_index`. IKKE en
+                      datostreng — se noten om afgrænsning nedenfor.
+        time_col:     'hour_utc' (proxy-datasets) eller 'TimeUTC' (EDS-datasets).
+
+    Afgrænsning — én regel, brugt både af masken og af vagten:
+
+        vindue = [idx.min(), idx.max() + step)
+
+    Bucket-etiketterne er lukkede i begge ender (`idx.min()` .. `idx.max()`),
+    mens selve tidsvinduet er HALVÅBENT til højre. De to udsagn er det samme:
+    bucket `idx.max()` spænder `[idx.max(), idx.max() + step)`, og alle
+    observationer i det span hører til den bucket.
+
+    Det er netop dét den gamle kode tog fejl af. Den modtog to omformaterede
+    datostrenge og gættede sig til højre endepunkt: en bar dato blev udvidet
+    til 23:59:59, mens 'YYYY-MM-DDTHH:MM' ikke blev udvidet. Balance-stien
+    sendte det sidste format, så de sidste tre kvarter af hver kørsel blev
+    skåret væk og sidste time resamplet fra 1 af 4 kvarter (målt i Gate 0.5
+    §B4). Med en eksplicit akse er der intet at gætte, og gætteriet kan ikke
+    genopstå: signaturen tager en DatetimeIndex og kan ikke fodres med en
+    datostreng.
+
+    Raises:
+        FileNotFoundError: Hvis ingen årsfil findes.
+        CoverageError:     Hvis de indlæste data ikke dækker aksen.
+        KeyError:          Hvis `folder` ikke har en dækningsantagelse.
     """
-    years = _years_in_range(start, end)
+    if not isinstance(idx, pd.DatetimeIndex):
+        raise TypeError(
+            f"_read_dataset kræver en pd.DatetimeIndex som akse, fik "
+            f"{type(idx).__name__}. Send make_time_index(cfg) — ikke en "
+            "datostreng. En streng ville genindføre gætteriet om hvad "
+            "'end' betyder (jf. Gate 0.5 §B4)."
+        )
+    if len(idx) == 0:
+        raise ValueError("_read_dataset: tom tidsakse.")
+
+    if folder not in _MIN_OBS_PER_HOUR:
+        raise KeyError(
+            f"_read_dataset: ingen dækningsantagelse for datasættet "
+            f"{folder!r}. Kendte: {sorted(_MIN_OBS_PER_HOUR)}. "
+            "En dækningsantagelse er en påstand om kildens native opløsning "
+            "og skal træffes bevidst: et 15-min-datasæt målt med "
+            "min_per_bucket=1 ville blive godkendt for slapt uden en lyd. "
+            f"Tilføj {folder!r} til _MIN_OBS_PER_HOUR med et målt tal."
+        )
+
+    step = _axis_step(idx)
+    window_start = idx.min()
+    window_end = idx.max() + step        # eksklusiv
+
+    years = _years_in_range(idx)
     frames: list[pd.DataFrame] = []
     missing: list[str] = []
     for year in years:
@@ -141,12 +249,14 @@ def _read_dataset(
 
     if not frames:
         raise FileNotFoundError(
-            f"Ingen CSV'er fundet for {folder}/{zone_or_area} i {start}..{end}. "
+            f"Ingen CSV'er fundet for {folder}/{zone_or_area} i "
+            f"{window_start}..{idx.max()}. "
             f"Forventede filer: {', '.join(f'{zone_or_area}_{y}.csv' for y in years)}. "
             f"Kontrollér df-data-cache i {repo_root}."
         )
     if missing:
-        # Ikke en fejl — fx aFRR DK1 har ikke 2023-data. Bare informér.
+        # Ikke en fejl i sig selv — vagten nedenfor afgør om det betød noget.
+        # Print'et siger hvilken FIL der manglede; vagten hvilke TIMER.
         print(
             f"    ({folder}/{zone_or_area}: spring over {', '.join(missing)} "
             f"— ikke til stede i repo)"
@@ -154,18 +264,22 @@ def _read_dataset(
 
     df = pd.concat(frames, ignore_index=True)
 
-    # Filtrer på tids-range. Hvis `end` er en bare dato (uden time-komponent)
-    # tolkes den som "hele dagen" (inklusivt 23:59:59) — sammensvarer med
-    # API'ernes konvention og undgår at miste sidste-dags timer ved
-    # cfg.time.end = "YYYY-12-31".
-    start_ts = pd.Timestamp(start)
-    end_ts = pd.Timestamp(end)
-    if end_ts == end_ts.normalize() and ":" not in str(end):
-        end_ts = end_ts + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
-
     ts = pd.to_datetime(df[time_col])
-    mask = (ts >= start_ts) & (ts <= end_ts)
-    return df.loc[mask].reset_index(drop=True)
+    mask = (ts >= window_start) & (ts < window_end)
+    out = df.loc[mask].reset_index(drop=True)
+
+    # Dækningsvagt på det MASKEREDE ts — den mængde der faktisk går videre til
+    # reindeksering og nul-fyldning. Bucket-navnet kommer fra aksen selv, så
+    # 15-minutters-grænsen håndhæves ét sted: inde i assert_coverage.
+    assert_coverage(
+        ts.loc[mask],
+        window_start,
+        idx.max(),
+        label=f"{folder}/{zone_or_area}",
+        bucket=_STEP_BUCKET.get(step, str(step)),
+        min_per_bucket=_MIN_OBS_PER_HOUR[folder],
+    )
+    return out
 
 
 # ------------------------------------------------------------------------------
@@ -174,14 +288,13 @@ def _read_dataset(
 
 def fetch_spot_prices_github(
     zone: str,
-    start: str,
-    end: str,
+    idx: pd.DatetimeIndex,
     *,
     repo_root: Path,
     eur_dkk: float = DEFAULT_EUR_DKK,  # bagudkompatibel, bruges ikke
 ) -> pd.Series:
     """Spejl af `fetch_spot_prices` der læser fra df-data/spot/."""
-    df = _read_dataset(repo_root, "spot", zone, start, end, time_col="hour_utc")
+    df = _read_dataset(repo_root, "spot", zone, idx, time_col="hour_utc")
     required = {"hour_utc", "price_area", "spot_price_dkk"}
     missing = required - set(df.columns)
     if df.empty or missing:
@@ -193,7 +306,7 @@ def fetch_spot_prices_github(
     df = df[df["price_area"] == zone]
     if df.empty:
         raise RuntimeError(
-            f"Ingen spot-data for zone={zone!r} i {start}..{end} efter filtrering."
+            f"Ingen spot-data for zone={zone!r} i {idx.min()}..{idx.max()} efter filtrering."
         )
 
     s = (
@@ -209,18 +322,17 @@ def fetch_spot_prices_github(
 
 def fetch_dmi_obs_github(
     shortname: str,
-    start: str,
-    end: str,
+    idx: pd.DatetimeIndex,
     *,
     area: str,
     repo_root: Path,
 ) -> pd.Series:
     """Spejl af `fetch_dmi_obs` der læser fra df-data/dmi/."""
-    df = _read_dataset(repo_root, "dmi", area, start, end, time_col="hour_utc")
+    df = _read_dataset(repo_root, "dmi", area, idx, time_col="hour_utc")
     if df.empty or "hour_utc" not in df.columns or shortname not in df.columns:
         raise RuntimeError(
             f"Ingen brugbar DMI-data for shortname={shortname!r}, area={area!r}, "
-            f"{start}..{end}. Kolonner: {list(df.columns)}"
+            f"{idx.min()}..{idx.max()}. Kolonner: {list(df.columns)}"
         )
     s = (
         pd.Series(
@@ -234,16 +346,15 @@ def fetch_dmi_obs_github(
 
 
 def fetch_dmi_weather_github(
-    start: str,
-    end: str,
+    idx: pd.DatetimeIndex,
     *,
     area: str = "fyn",
     repo_root: Path,
 ) -> pd.DataFrame:
     """Spejl af `fetch_dmi_weather` — alle DMI-variabler i wide-format."""
-    df = _read_dataset(repo_root, "dmi", area, start, end, time_col="hour_utc")
+    df = _read_dataset(repo_root, "dmi", area, idx, time_col="hour_utc")
     if df.empty or "hour_utc" not in df.columns:
-        raise RuntimeError(f"Ingen DMI-data for area={area!r}, {start}..{end}")
+        raise RuntimeError(f"Ingen DMI-data for area={area!r}, {idx.min()}..{idx.max()}")
     idx = pd.to_datetime(df["hour_utc"])
     # Samme udeladelser som `fetch_dmi_weather`: `area` er en streng, og
     # `unixtime`/`timestamp` er tidsstempler. Uden dette blev `area` til en
@@ -260,8 +371,7 @@ def fetch_dmi_weather_github(
 
 
 def fetch_balance_prices_github(
-    start: str,
-    end: str,
+    idx: pd.DatetimeIndex,
     zone: str = "DK1",
     *,
     repo_root: Path,
@@ -274,10 +384,10 @@ def fetch_balance_prices_github(
     med samme variabel-skema.
     """
     # ----- aFRR-kapacitet (time-opløst) -----
-    df_cap = _read_dataset(repo_root, "afrr", zone, start, end, time_col="TimeUTC")
+    df_cap = _read_dataset(repo_root, "afrr", zone, idx, time_col="TimeUTC")
     if df_cap.empty:
         raise RuntimeError(
-            f"aFRR-data tom for {zone} i {start}..{end}. "
+            f"aFRR-data tom for {zone} i {idx.min()}..{idx.max()}. "
             "DK1 har data fra oktober 2024."
         )
     df_cap["time"] = pd.to_datetime(df_cap["TimeUTC"])
@@ -291,10 +401,10 @@ def fetch_balance_prices_github(
     })
 
     # ----- ImbalancePrice (15-min → time) -----
-    df_imb = _read_dataset(repo_root, "imbalance", zone, start, end, time_col="TimeUTC")
+    df_imb = _read_dataset(repo_root, "imbalance", zone, idx, time_col="TimeUTC")
     if df_imb.empty:
         raise RuntimeError(
-            f"imbalance-data tom for {zone} i {start}..{end}. "
+            f"imbalance-data tom for {zone} i {idx.min()}..{idx.max()}. "
             "DK1 har data fra marts 2025."
         )
     df_imb["time15"] = pd.to_datetime(df_imb["TimeUTC"])
@@ -354,9 +464,9 @@ def fetch_balance_prices_github(
         )
 
     # ----- mFRR kapacitet (time-opløst) -----
-    df_mcap = _read_dataset(repo_root, "mfrr_cap", zone, start, end, time_col="TimeUTC")
+    df_mcap = _read_dataset(repo_root, "mfrr_cap", zone, idx, time_col="TimeUTC")
     if df_mcap.empty:
-        raise RuntimeError(f"mFRR-cap data tom for {zone} i {start}..{end}.")
+        raise RuntimeError(f"mFRR-cap data tom for {zone} i {idx.min()}..{idx.max()}.")
     df_mcap["time"] = pd.to_datetime(df_mcap["TimeUTC"])
     df_mcap = df_mcap.set_index("time").sort_index()
     df_mcap = df_mcap[~df_mcap.index.duplicated(keep="first")]
@@ -366,9 +476,9 @@ def fetch_balance_prices_github(
     })
 
     # ----- mFRR aktiveret volumen (15-min → time, kun TotalmFRRUpMW) -----
-    df_mact = _read_dataset(repo_root, "mfrr_act", zone, start, end, time_col="TimeUTC")
+    df_mact = _read_dataset(repo_root, "mfrr_act", zone, idx, time_col="TimeUTC")
     if df_mact.empty:
-        raise RuntimeError(f"mFRR-act data tom for {zone} i {start}..{end}.")
+        raise RuntimeError(f"mFRR-act data tom for {zone} i {idx.min()}..{idx.max()}.")
     df_mact["time15"] = pd.to_datetime(df_mact["TimeUTC"])
     df_mact = df_mact.set_index("time15").sort_index()
     df_mact = df_mact[~df_mact.index.duplicated(keep="first")]
@@ -441,16 +551,18 @@ def load_external_data_github(
 
     repo_root = _ensure_df_data_cache(repo_url, cache_dir, force_refresh)
 
+    # Aksen er den ENE periodedefinition. Den sendes uændret hele vejen ned;
+    # ingen omformatering til datostrenge undervejs. 15-minutters-grænsen
+    # håndhæves af assert_coverage, som får bucket-navnet fra aksens egen
+    # skridtlængde — ét sted, ikke to.
     idx = make_time_index(cfg)
-    start = idx.min().strftime("%Y-%m-%d")
-    end = idx.max().strftime("%Y-%m-%d")
 
     t_raw = fetch_dmi_obs_github(
-        dmi_temp_shortname, start, end,
+        dmi_temp_shortname, idx,
         area=dmi_area, repo_root=repo_root,
     )
     spot_raw = fetch_spot_prices_github(
-        price_zone, start, end,
+        price_zone, idx,
         eur_dkk=eur_dkk, repo_root=repo_root,
     )
 
@@ -486,9 +598,10 @@ def load_external_data_github(
     )
 
     if with_balancing:
-        start_iso = pd.Timestamp(cfg.time.start).strftime("%Y-%m-%dT%H:%M")
-        end_iso = pd.Timestamp(cfg.time.end).strftime("%Y-%m-%dT%H:%M")
-        # av-params kun når den nye metode er valgt — kræver budstrategi + 15-min spot.
+        # Samme `idx` som spot/DMI fik. Tidligere blev cfg.time her formateret
+        # til "%Y-%m-%dT%H:%M", hvilket gav balance-stien et andet højre
+        # endepunkt end spot/DMI-stien og skar de sidste tre kvarter væk
+        # (Gate 0.5 §B4). Aksen sendes nu uændret begge veje.
         av_params = None
         if getattr(cfg, "balancing_method", "legacy") == "activation_value":
             bs = cfg.bid_strategy
@@ -499,8 +612,7 @@ def load_external_data_github(
                                  + cfg.electricity.electricity_tax),
             }
         bal = fetch_balance_prices_github(
-            start=start_iso,
-            end=end_iso,
+            idx,
             zone=cfg.electricity.spot_area,
             repo_root=repo_root,
             target_index=pd.DatetimeIndex(ds.time.values),

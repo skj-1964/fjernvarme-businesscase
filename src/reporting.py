@@ -311,8 +311,30 @@ def write_hourly_csv(result: xr.Dataset, data: xr.Dataset, cfg,
          {s}_level_mwh, {s}_level_pct, {s}_charge_mw, {s}_discharge_mw,
          {s}_net_mw, [{s}_shadow_dkk_mwh], [{s}_value_dkk]
 
-    Første time droppes — den er en boundary condition (storage_energy[0]
-    er start-værdi, ikke resultat af dispatch, så heat_prod[0] = 0).
+    RÆKKEANTAL: N−1, ikke N. Første time droppes med vilje, så CSV'en
+    dækker [idx[1], idx[-1]] mens modelaksen dækker [idx[0], idx[-1]].
+
+    Begrundelsen er lagerdynamikken, ikke produktionen. `model.py:234`
+    binder kun energibalancen fra t=1:
+
+        dyn.sel(time=time_coord[1:]) == 0
+
+    mens `storage_energy[0]` pinnes til `e_initial` (model.py:243-246).
+    Ved t=0 er `charge[0]`/`discharge[0]` derfor ikke bundet af nogen
+    balance: lageret kan aflade uden at blive tømt. Målt på
+    billund_sporB_q1_2026 (2026-01-01 00:00): `storage_net[0] = −13.098` MW
+    mens `storage_energy[0] = 279.0` = `e_initial` uændret. Timen leverer
+    altså gratis varme og er ikke en fysisk dispatch-beslutning.
+
+    NB: en tidligere udgave af denne docstring begrundede droppet med at
+    `heat_prod[0] = 0`. Det er målt forkert — i samme kørsel er
+    `heat_prod[0]` 6,5 MW fordelt på fliskedel (2,5) og halmkedel (4,0).
+    Den rigtige begrundelse er den ubundne lagerbalance ovenfor.
+
+    ADVARSEL: objektivet og manifestets nøgletal beregnes på ALLE N timer,
+    inklusive t=0 med dens gratis afladning. Rapporten skjuler timen;
+    optimeringen gør ikke. Det er en defekt i model.py, ikke i rapporten,
+    og den er ikke lukket her — se noter/notat_f1bc_akse_og_rapport.md.
     """
     t = data.time.values
     dt_delta = pd.to_timedelta(data.time.diff("time").mean().values)
@@ -455,7 +477,9 @@ def write_hourly_csv(result: xr.Dataset, data: xr.Dataset, cfg,
     dkk_mwh_cols = [c for c in df.columns if c.endswith("_dkk_mwh")]
     df[dkk_mwh_cols] = df[dkk_mwh_cols].round(1)
 
-    # Drop første time — boundary condition
+    # Drop første time. Lagerbalancen bindes først fra t=1 (model.py:234),
+    # så charge/discharge[0] er ubundet og timen leverer gratis varme.
+    # Se docstringen — begrundelsen er lageret, ikke produktionen.
     df = df.iloc[1:]
 
     df.to_csv(out_path, date_format="%Y-%m-%dT%H:%M:%S")

@@ -30,6 +30,10 @@ Thumbs.db
 # --- Modelresultater og cache (regenererbare) ----------------------------------
 # Resultater fra kørsler — genskabes ved at køre run_case.py
 output/
+# `out/` er samme slags: run_case.py's --outdir er brugt med begge navne.
+# Kun `output/` var dækket, så 41 filer (heraf 7 .nc-binærer) lå utrackede og
+# ville være røget med i et push. Målt i Gate 1d DEL A3.
+out/
 *.png
 !doc/figures/*.png
 
@@ -45,9 +49,32 @@ data/private/
 *.local.yaml
 *.local.csv
 
-# Lokale noter, STATUS-filer og Billunds kommercielle afregningsdata (facit).
-# Holdes uden for repoet — kun lokalt arbejdsmateriale.
-noter/
+# --- Noter og gate-rapporter ---------------------------------------------------
+# noter/ er som UDGANGSPUNKT ignoreret, fordi mappen også rummer Billunds
+# kommercielle afregningsdata (`billund_balance_facit_*.csv` — faktiske
+# månedsindtægter i DKK) og analyser der gengiver tallene i tabelform.
+#
+# F-sporets gate-rapporter er derimod det MÅLTE grundlag for datamigrationen
+# (F1, F6, F8). De fandtes indtil 2026-08-09 kun på denne maskine og går tabt
+# med den. De undtages derfor eksplicit nedenfor.
+#
+# HVIDLISTE, IKKE SORTLISTE. En ny fil i noter/ er ignoreret indtil nogen
+# aktivt tilføjer den her. En sortliste ville slippe den næste facit-fil
+# igennem i tavshed; denne form fejler i den sikre retning.
+#
+# Bemærk formen: `noter/*`, ikke `noter/`. Med skråstreg descender git ikke
+# ned i mappen, og en `!`-undtagelse under den ville aldrig virke.
+noter/*
+!noter/DATADISTRIBUTION_IMPLEMENTERING_V1.md
+!noter/F6_GATE1_MAPPING.md
+!noter/notat_f1_gate0_daekningsvagt.md
+!noter/notat_f1_gate05_oploesning_akse.md
+!noter/notat_f1_gate1_test.md
+!noter/notat_f1_gate2_implementering.md
+!noter/notat_f1_gate3_akse_ned.md
+!noter/notat_f1bc_akse_og_rapport.md
+!noter/notat_f6_gate0_api_vs_klon.md
+!noter/notat_f8_gate0_kildemaaling.md
 
 # --- Logfiler ------------------------------------------------------------------
 *.log

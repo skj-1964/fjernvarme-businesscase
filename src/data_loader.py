@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -60,6 +61,140 @@ def make_time_index(cfg: CaseConfig) -> pd.DatetimeIndex:
     freq = {"1h": "h", "15min": "15min"}[cfg.time.resolution]
     idx = pd.date_range(cfg.time.start, cfg.time.end, freq=freq, tz="UTC")
     return idx.tz_localize(None)
+
+
+# ------------------------------------------------------------------------------
+# Dækningsvagt
+# ------------------------------------------------------------------------------
+
+class CoverageError(ValueError):
+    """Indlæste data dækker ikke den ønskede periode.
+
+    Adskilt fra ValueError så kaldere kan skelne "data mangler" fra
+    "argumenterne er forkerte". Arver fra ValueError for bagudkompatibel
+    except-håndtering.
+    """
+
+
+# Kun timesbuckets er understøttet. Se `assert_coverage` for hvorfor.
+_BUCKET_FREQ = {"1h": "h"}
+
+
+def assert_coverage(
+    ts,
+    start_ts,
+    end_ts,
+    *,
+    label: str,
+    bucket: str = "1h",
+    min_per_bucket: int = 1,
+) -> None:
+    """Fejl hvis `ts` ikke dækker [start_ts, end_ts] tæt nok.
+
+    Perioden deles i buckets à `bucket`, og hver bucket skal indeholde mindst
+    `min_per_bucket` observationer. Rejser `CoverageError` ellers.
+
+    Vagten måler i buckets frem for i skridt, fordi kildernes native opløsning
+    ikke er konstant: DK1/DK2-spot skifter 1h → 15-min ved 2025-09-30 22:00
+    (målt, se noter/notat_f1_gate05_oploesning_akse.md §A1). Med timesbuckets
+    dækker 15-min-data trivielt hver time, så skiftet kræver ingen
+    breakpoints og ingen tidsafhængig forventet frekvens.
+
+    `min_per_bucket` er en påstand om KILDEN og hører derfor hos kalderen, som
+    ved hvilket datasæt der læses — ikke her.
+
+    Args:
+        ts: Faktiske tidsstempler. Series, DatetimeIndex eller array-lignende.
+            NaT ignoreres.
+        start_ts, end_ts: Ønsket interval, begge endepunkter inklusive.
+        label: Datasætnavn til fejlbeskeden, fx "afrr/DK1".
+        bucket: Bucket-granularitet. Kun "1h" er understøttet.
+        min_per_bucket: Krævet antal observationer pr. bucket.
+
+    Raises:
+        NotImplementedError: Hvis `bucket` ikke er "1h".
+        CoverageError: Hvis nogen bucket har for få observationer.
+
+    Vagten fylder, korrigerer og returnerer intet. Enten rejser den, eller
+    også gør den ingenting.
+    """
+    freq = _BUCKET_FREQ.get(bucket)
+    if freq is None:
+        raise NotImplementedError(
+            f"assert_coverage: bucket={bucket!r} er ikke understøttet — kun "
+            f"{sorted(_BUCKET_FREQ)} er. Grunden er at én min_per_bucket ikke "
+            "kan dække begge sider af opløsningsskiftet: før 2025-09-30 22:00 "
+            "er spot ægte timesdata, så en 15-minutters model SKAL opsample "
+            "— det er en erklæret opsampling, ikke manglende dækning. Efter "
+            "skiftet er 15-min native, og dér ville en manglende kvartersrække "
+            "være et ægte hul. De to tilfælde kræver hver sin tærskel. "
+            "Grænsen er synlig her frem for gættet nedstrøms."
+        )
+
+    start_ts = pd.Timestamp(start_ts)
+    end_ts = pd.Timestamp(end_ts)
+    if end_ts < start_ts:
+        raise ValueError(
+            f"assert_coverage[{label}]: end_ts ({end_ts}) ligger før "
+            f"start_ts ({start_ts})."
+        )
+
+    expected = pd.date_range(start_ts, end_ts, freq=freq)
+    if len(expected) == 0:                    # pragma: no cover — fanget ovenfor
+        return
+
+    observed = pd.DatetimeIndex(pd.to_datetime(pd.Index(ts), errors="coerce"))
+    observed = observed[~observed.isna()]
+
+    if len(observed) == 0:
+        raise CoverageError(
+            f"{label}: ingen brugbare tidsstempler.\n"
+            f"  Ønsket:  {start_ts} → {end_ts} "
+            f"({len(expected)} buckets à {bucket}, min {min_per_bucket} obs/bucket)\n"
+            f"  Målt:    0 observationer\n"
+            f"  Mangler: {len(expected)}/{len(expected)} buckets (0.0% dækning)\n"
+            f"  Kilden leverede intet for perioden. Data er ikke fyldt eller "
+            f"korrigeret — kørslen er stoppet før nul-fyldning."
+        )
+
+    per_bucket = (
+        pd.Series(1, index=observed.floor(freq))
+        .groupby(level=0).sum()
+        .reindex(expected, fill_value=0)
+    )
+    short = per_bucket[per_bucket < min_per_bucket]
+    if short.empty:
+        return
+
+    n_short = len(short)
+    # Afrund NEDAD. 8783/8784 skal vise 99.9%, ikke 100.0% — ellers modsiger
+    # procenten "Mangler: 1/8784" i samme besked.
+    coverage_pct = math.floor(
+        (len(expected) - n_short) / len(expected) * 1000.0
+    ) / 10.0
+    fmt = "%Y-%m-%d %H:%M"
+    head = ", ".join(t.strftime(fmt) for t in short.index[:3])
+    tail = ", ".join(t.strftime(fmt) for t in short.index[-3:])
+
+    if min_per_bucket == 1:
+        what = "buckets uden observationer"
+    else:
+        what = f"buckets med under {min_per_bucket} observationer"
+
+    raise CoverageError(
+        f"{label}: dækning mangler for den ønskede periode.\n"
+        f"  Ønsket:  {start_ts} → {end_ts} "
+        f"({len(expected)} buckets à {bucket}, min {min_per_bucket} obs/bucket)\n"
+        f"  Målt:    {len(observed)} observationer, "
+        f"{observed.min()} → {observed.max()}\n"
+        f"  Mangler: {n_short}/{len(expected)} {what} "
+        f"({coverage_pct:.1f}% dækning)\n"
+        f"  Første:  {head}\n"
+        f"  Sidste:  {tail}\n"
+        f"  Data er ikke fyldt eller korrigeret — kørslen er stoppet før "
+        f"nul-fyldning. Kontrollér at df-data dækker perioden, eller "
+        f"indskrænk cfg.time."
+    )
 
 
 # ------------------------------------------------------------------------------
