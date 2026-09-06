@@ -9,6 +9,8 @@ skal IKKE lave validering — kun bygge LP-udtryk.
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
+
+from src.tariff import ConsumptionTariff, parse_consumption_tariff
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Literal
@@ -48,6 +50,14 @@ class Ancillary:
     # et bestemt tidspunkt (et anlægsfaktum, ikke en prisrespons). None = altid
     # tilgængelig (uændret adfærd).
     available_from: Optional[str] = None
+    # Budvindue (punkt g): måneder og lokale timer hvor enheden overhovedet
+    # afgiver bud i kapacitetsmarkedet. Udeladt nøgle = ingen begrænsning.
+    # Modellerer en driftsbeslutning, ikke en prisrespons: Billund byder ikke
+    # elkedlen i CM om sommeren, fordi tankene ikke kan optage den produktion
+    # et vundet bud tvinger frem. Rammer kun budafgivelsen — varmedispatch er
+    # urørt, og enheden må stadig køre i spot.
+    #   bid_window: {months: [10,11,12,1,2,3], hours_local: [6,7,...,21]}
+    bid_window: Optional[dict] = None
 
 
 @dataclass
@@ -98,13 +108,40 @@ class AncillaryCaps:
     """Generiske reservelofter (erstatter shared_reserve_cap_mw).
 
     per_unit_mw: maks samlet bud (aFRR+mFRR) per enhed [MW el]. Håndhæves ALTID.
-        Billund: {vp_luft_vand: 6.0}.
+        Billund: {vp_luft_vand: 5.52} (prækvalificeret eloptag).
+    per_unit_market_mw: maks bud per enhed PER MARKED [MW el]:
+
+        r_afrr[i,t] ≤ per_unit_market_mw[i]["afrr"]   ∀t
+        r_mfrr[i,t] ≤ per_unit_market_mw[i]["mfrr"]   ∀t
+
+        Modellerer at værket selv fordeler sin prækvalificerede kapacitet
+        mellem markederne med faste bud-volumener. Billund (John 26/8 2026):
+        VP bydes med 2 MW eloptag i aFRR-CM og 3 MW i mFRR-CM, inden for de
+        5,52 MW prækvalificeret i alt. Bemærk at summen af de to markedslofter
+        kan være mindre end per_unit_mw — begge håndhæves, og den strammere
+        binder. Kun markeder, der nævnes, begrænses; udeladt marked = fri.
     total_mw:    maks summen af ALLE bud på tværs af markeder og enheder per time.
-        Billund: 33 (begge elkedler) / 15 (kun elkedel_gl, elkedel_ny under
-        inkøring). Sættes konsistent med hvilke kedler casen har enabled.
+        Billund: 33 (begge elkedler) / 17,52 (5,52 VP + 12 elkedel_gl, elkedel_ny
+        endnu ikke godkendt). Sættes konsistent med hvilke kedler casen har enabled.
     """
     per_unit_mw: dict = field(default_factory=dict)
+    per_unit_market_mw: dict = field(default_factory=dict)
     total_mw: Optional[float] = None
+
+    def __post_init__(self) -> None:
+        valid = {"afrr", "mfrr"}
+        for unit_name, per_market in (self.per_unit_market_mw or {}).items():
+            if not isinstance(per_market, dict):
+                raise ValueError(
+                    f"ancillary_caps.per_unit_market_mw.{unit_name} skal være et "
+                    f"map med nøglerne 'afrr' og/eller 'mfrr', fik {per_market!r}"
+                )
+            unknown = set(per_market) - valid
+            if unknown:
+                raise ValueError(
+                    f"ancillary_caps.per_unit_market_mw.{unit_name}: ukendt marked "
+                    f"{sorted(unknown)}. Gyldige nøgler: {sorted(valid)}"
+                )
 
 
 @dataclass
@@ -115,8 +152,21 @@ class ReservationGateMarket:
         Gaten er åben i intervaller hvor CM_m(t) ≥ τ_m.
     block_mw: blok-niveau B_m [MW el] der reserveres når gaten er åben.
     """
-    cm_threshold_dkk_mw_h: float
-    block_mw: float
+    cm_threshold_dkk_mw_h: Optional[float] = None
+    # Punkt (c): tærsklen regnet af brændselsstakken i stedet for kalibreret.
+    #   τ(t) = spot(t) + tarif(t) + COP(t)·var_om − COP(t)·alternativ(t)
+    # Sæt {reference_unit: <navn>, floor_dkk_mw_h: 50}. Er den sat, ignoreres
+    # cm_threshold_dkk_mw_h. Se src/balancing.py:_opportunity_threshold.
+    opportunity_cost: Optional[dict] = None
+    block_mw: float = 0.0
+
+    def __post_init__(self) -> None:
+        if self.cm_threshold_dkk_mw_h is None and self.opportunity_cost is None:
+            raise ValueError(
+                "reservation_gate: sæt enten cm_threshold_dkk_mw_h (kalibreret "
+                "tærskel) eller opportunity_cost (beregnet tærskel af "
+                "brændselsstakken)"
+            )
 
 
 @dataclass
@@ -337,6 +387,9 @@ class Electricity:
     tariff_consumption_flat: float
     tariff_production_flat: float
     electricity_tax: float
+    # Tidsvarierende båndprofil (punkt d). None = brug den flade værdi.
+    # Er begge sat, vinder profilen — se src/tariff.py.
+    tariff_consumption: Optional["ConsumptionTariff"] = None
 
 
 @dataclass
@@ -518,6 +571,7 @@ def load_case(
         tariff_consumption_flat=e["tariff_consumption_flat"],
         tariff_production_flat=e["tariff_production_flat"],
         electricity_tax=e["electricity_tax"],
+        tariff_consumption=parse_consumption_tariff(e.get("tariff_consumption")),
     )
 
     # Enheder
@@ -565,6 +619,7 @@ def load_case(
     ancillary_caps = (
         AncillaryCaps(
             per_unit_mw=caps_raw.get("per_unit_mw", {}),
+            per_unit_market_mw=caps_raw.get("per_unit_market_mw", {}),
             total_mw=caps_raw.get("total_mw"),
         )
         if caps_raw
@@ -580,7 +635,12 @@ def load_case(
             if not mk:
                 return None
             return ReservationGateMarket(
-                cm_threshold_dkk_mw_h=float(mk["cm_threshold_dkk_mw_h"]),
+                cm_threshold_dkk_mw_h=(
+                    float(mk["cm_threshold_dkk_mw_h"])
+                    if mk.get("cm_threshold_dkk_mw_h") is not None
+                    else None
+                ),
+                opportunity_cost=mk.get("opportunity_cost"),
                 block_mw=float(mk["block_mw"]),
             )
         reservation_gate = ReservationGate(

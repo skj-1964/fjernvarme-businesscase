@@ -70,7 +70,10 @@ from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
+import pandas as pd
 import xarray as xr
+
+from src.tariff import resolve_consumption_tariff
 import linopy as lp
 
 from .config import CaseConfig, Unit
@@ -286,6 +289,20 @@ def _add_market_reserves(
                 f"({n_open/n_total*100:.1f}%), 0 før onset"
             )
 
+        # Budvindue (punkt g): uden for vinduet afgives intet bud.
+        vindue = _bid_window_mask(unit, time_coord)
+        if vindue is not None:
+            m.add_constraints(
+                r <= xr.where(vindue, p_el_max, 0.0),
+                name=f"{market.var_prefix}_bid_window_{unit.name}",
+            )
+            n_aabne = int(vindue.sum())
+            print(
+                f"  {market.label}: {unit.name} budvindue → byder i "
+                f"{n_aabne}/{len(time_coord)} intervaller "
+                f"({n_aabne/len(time_coord)*100:.1f}%)"
+            )
+
         # Max-bud per enhed og marked (trin A for aFRR, trin B for mFRR).
         # Navngiven constraint for diagnostik; solveren bruger den strammere
         # binding (p_el_max som upper-bound vs max_bid som constraint).
@@ -445,17 +462,57 @@ def _add_group_constraints(
 # Fælles reserve-loft — ét loft over begge markeder og alle bydende enheder
 # ---------------------------------------------------------------------------
 
+
+def _bid_window_mask(unit, time_coord) -> Optional[xr.DataArray]:
+    """Boolsk maske: må enheden afgive bud i dette interval?
+
+    Punkt (g). Vinduet er en driftsbeslutning, ikke en prisrespons. Billund
+    byder ikke elkedlen i kapacitetsmarkedet om sommeren, fordi tankene ikke
+    kan optage den produktion, et vundet bud tvinger frem, og byder om sommeren
+    kun varmepumpen og kun i dagtimerne.
+
+    Måned og time slås op på LOKAL tid. Modellens akse er UTC, og en
+    UTC-baseret nøgle ville forskyde vinduet en time om sommeren — præcis den
+    årstid, reglen handler om.
+
+    None = ingen begrænsning (uændret adfærd for alle eksisterende cases).
+    """
+    window = getattr(unit.ancillary, "bid_window", None)
+    if not window:
+        return None
+    vaerdier = getattr(time_coord, "values", time_coord)
+    lokal = pd.DatetimeIndex(vaerdier).tz_localize("UTC").tz_convert(
+        "Europe/Copenhagen"
+    )
+    tilladt = np.ones(len(lokal), dtype=bool)
+    months = window.get("months")
+    if months is not None:
+        tilladt &= np.isin(lokal.month, list(months))
+    hours = window.get("hours_local")
+    if hours is not None:
+        tilladt &= np.isin(lokal.hour, list(hours))
+    return xr.DataArray(tilladt, coords={"time": vaerdier}, dims=["time"])
+
 def _add_per_unit_caps(
     m: lp.Model,
     caps,  # AncillaryCaps
     afrr_vars: dict,
     mfrr_vars: dict,
 ) -> None:
-    """Per-enheds-loft på samlet bud (aFRR + mFRR) per time:
+    """Per-enheds-lofter på reservationen, per time.
 
-        r_afrr[i,t] + r_mfrr[i,t] ≤ per_unit_mw[i]    ∀t
+    To uafhængige former, der begge håndhæves når de er sat:
 
-    Håndhæves ALTID når sat — uafhængigt af det samlede loft. Billund: VP ≤ 6 MW.
+        (1) samlet:      r_afrr[i,t] + r_mfrr[i,t] ≤ per_unit_mw[i]        ∀t
+        (2) per marked:  r_afrr[i,t] ≤ per_unit_market_mw[i]["afrr"]       ∀t
+                         r_mfrr[i,t] ≤ per_unit_market_mw[i]["mfrr"]       ∀t
+
+    (1) er prækvalificeringen: hvor meget eloptag enheden må binde i alt.
+    (2) er værkets egen fordeling mellem markederne. Billund (John 26/8 2026):
+    VP prækvalificeret til 5,52 MW, men bydes med 2 MW i aFRR og 3 MW i mFRR.
+    Den strammere binder; de er ikke ment som alternativer til hinanden.
+
+    Håndhæves ALTID når sat — uafhængigt af det samlede loft (total_mw).
     """
     for unit_name, cap_mw in (caps.per_unit_mw or {}).items():
         terms = [d[unit_name] for d in (afrr_vars, mfrr_vars) if unit_name in d]
@@ -468,6 +525,26 @@ def _add_per_unit_caps(
         print(
             f"  Per-enheds-loft: {unit_name} (aFRR+mFRR) ≤ {float(cap_mw):.1f} MW/time"
         )
+
+    vars_by_market = {"afrr": afrr_vars, "mfrr": mfrr_vars}
+    label_by_market = {"afrr": "aFRR", "mfrr": "mFRR"}
+    for unit_name, per_market in (getattr(caps, "per_unit_market_mw", None) or {}).items():
+        for market_key, cap_mw in per_market.items():
+            if cap_mw is None:
+                continue
+            market_vars = vars_by_market[market_key]
+            if unit_name not in market_vars:
+                # Enheden er ikke kvalificeret til dette marked i denne case.
+                # Ikke en fejl — loftet er blot uden virkning.
+                continue
+            m.add_constraints(
+                market_vars[unit_name] <= float(cap_mw),
+                name=f"per_unit_market_cap_{unit_name}_{market_key}",
+            )
+            print(
+                f"  Per-markeds-loft: {unit_name} {label_by_market[market_key]} "
+                f"≤ {float(cap_mw):.1f} MW/time"
+            )
 
 
 def _add_shared_cap_constraint(
@@ -515,12 +592,141 @@ def _add_shared_cap_constraint(
 # CM-pris-gate på reservationen (Spor B = driven, Spor A = bound)
 # ---------------------------------------------------------------------------
 
+
+def _available_bid_capacity(cfg, market, eligible, data, caps) -> xr.DataArray:
+    """Hvor meget kan der overhovedet bydes i dette marked, interval for interval?
+
+    Summen over de kvalificerede enheder af hver enheds bindende budloft,
+    nulstillet uden for enhedens budvindue (punkt g).
+
+    Serien bruges til at loft-begrænse gatens blokserie. Uden den ville
+    `driven`-gatens lighedstegn kræve en reservation, der er fysisk umulig, så
+    snart et budvindue lukker en enhed ude — og modellen ville være infeasible
+    frem for at vise det, reglen faktisk gør: at der bydes mindre.
+    """
+    time_coord = data["time"]
+    total = None
+    lukket = None
+    for unit in eligible:
+        cop = _get_cop_series(unit, data)
+        lofter = [float(unit.p_max_heat / cop.min().item())]
+        if caps is not None:
+            pu = (caps.per_unit_mw or {}).get(unit.name)
+            if pu is not None:
+                lofter.append(float(pu))
+            pm = (getattr(caps, "per_unit_market_mw", None) or {}).get(unit.name, {})
+            if pm.get(market.gate_key) is not None:
+                lofter.append(float(pm[market.gate_key]))
+        else:
+            mb = getattr(unit.ancillary, market.max_bid_attr, None)
+            if mb is not None:
+                lofter.append(float(mb))
+        cap = min(lofter)
+        vindue = _bid_window_mask(unit, time_coord)
+        serie = (
+            xr.full_like(data["spot_price"], cap)
+            if vindue is None
+            else xr.where(vindue, cap, 0.0)
+        )
+        total = serie if total is None else total + serie
+        if vindue is not None:
+            luk = ~vindue
+            lukket = luk if lukket is None else (lukket | luk)
+    if total is None:
+        total = xr.full_like(data["spot_price"], 0.0)
+    if lukket is None:
+        lukket = xr.zeros_like(data["spot_price"], dtype=bool)
+    return total, lukket
+
+
+
+def _alternative_heat_cost(cfg, data: xr.Dataset) -> xr.DataArray:
+    """Marginalomkostningen for det billigste ikke-elektriske alternativ.
+
+    Enhederne sorteres efter marginalomkostning, og kapaciteten lægges sammen,
+    indtil varmelasten er dækket. Den enhed, der lukker hullet, er på
+    marginalen. Rent eksogent: både varmelast og brændselspriser er data.
+
+    Det er en forenkling — den ser bort fra lager, min-driftstid og
+    biomassens faktiske rådighed. Men den fanger dét, sagen handler om: at
+    alternativet om vinteren kan være gaskedlen og ikke halmen, og at
+    budprisen derfor burde være spot − 1.800 og ikke spot − 600.
+    """
+    from src.model import compute_marginal_cost as marginal_cost   # undgår cirkelimport
+
+    kandidater = []
+    for navn, unit in cfg.units.items():
+        if not unit.enabled or unit.fuel in ("electricity", "solar"):
+            continue
+        mc = marginal_cost(unit, cfg, data)
+        kandidater.append((float(mc.mean()), float(unit.p_max_heat), mc))
+    if not kandidater:
+        raise ValueError(
+            "opportunity_cost: casen har ingen ikke-elektriske enheder at "
+            "regne alternativomkostningen mod"
+        )
+    kandidater.sort(key=lambda k: k[0])
+
+    last = data["heat_load"] if "heat_load" in data.data_vars else None
+    if last is None:
+        last = xr.full_like(data["spot_price"], 0.0)
+
+    kumuleret = 0.0
+    resultat = None
+    for _, kapacitet, mc in kandidater:
+        naaet = last > kumuleret
+        resultat = mc if resultat is None else xr.where(naaet, mc, resultat)
+        kumuleret += kapacitet
+    return resultat
+
+
+def _opportunity_threshold(cfg, mkt_cfg, data: xr.Dataset, market) -> xr.DataArray:
+    """Punkt (c): τ(t) regnet af brændselsstakken i stedet for kalibreret.
+
+        τ(t) = spot(t) + tarif(t) + COP(t)·var_om − COP(t)·alternativ(t)
+
+    Det er alternativomkostningen ved at binde 1 MW eloptag i én time: hvad
+    elvarmen koster, minus hvad den varme ellers ville have kostet. Er
+    kapacitetsprisen større, betaler det sig at byde.
+
+    Johns regel — spotprognosen minus 600 kr., gulv 50 — falder ud af det
+    samme regnestykke ved COP omkring 3 og biomasse som alternativ. Forskellen
+    er, at τ her følger med, når gaskedlen kommer på marginalen.
+    """
+    ref_navn = mkt_cfg.opportunity_cost.get("reference_unit")
+    if ref_navn not in cfg.units:
+        raise ValueError(
+            f"opportunity_cost.reference_unit={ref_navn!r} findes ikke i casen"
+        )
+    unit = cfg.units[ref_navn]
+    cop = _get_cop_series(unit, data)
+    tarif = resolve_consumption_tariff(cfg, data)
+    alt = _alternative_heat_cost(cfg, data)
+
+    tau = (
+        data["spot_price"] + tarif + cfg.electricity.electricity_tax
+        + cop * unit.var_om
+        - cop * alt
+    )
+    gulv = float(mkt_cfg.opportunity_cost.get("floor_dkk_mw_h", 0.0))
+    tau = xr.where(tau < gulv, gulv, tau)
+    print(
+        f"  {market.label}: beregnet tærskel (punkt c) — τ gns "
+        f"{float(tau.mean()):.0f}, median {float(tau.median()):.0f}, "
+        f"spænd {float(tau.min()):.0f}–{float(tau.max()):.0f} DKK/MW/h "
+        f"(gulv {gulv:.0f}, alternativ gns {float(alt.mean()):.0f} DKK/MWh)"
+    )
+    return tau
+
 def _add_reservation_gate(
     m: lp.Model,
+    cfg,
     gate,  # ReservationGate
     market: _MarketSpec,
     var_by_unit: dict[str, lp.Variable],
     data: xr.Dataset,
+    available_cap: Optional[xr.DataArray] = None,
+    window_closed: Optional[xr.DataArray] = None,
 ) -> None:
     """Knyt reservationen til markedets day-ahead CM-pris via en gate.
 
@@ -552,11 +758,28 @@ def _add_reservation_gate(
         return
 
     price_cap = data[market.cap_price_key]              # DKK/MW/h, dim time
-    threshold = float(mkt_cfg.cm_threshold_dkk_mw_h)
-    block = float(mkt_cfg.block_mw)
-
+    if getattr(mkt_cfg, "opportunity_cost", None):
+        threshold = _opportunity_threshold(cfg, mkt_cfg, data, market)
+    else:
+        threshold = float(mkt_cfg.cm_threshold_dkk_mw_h)
     gate_open = price_cap >= threshold                  # bool DataArray, dim time
+
+    block = float(mkt_cfg.block_mw)
     block_series = xr.where(gate_open, block, 0.0)      # eksogen MW-serie
+
+    # Blokken kan ikke overstige det, der faktisk kan bydes. Uden dette loft
+    # bliver `driven`-gatens lighedstegn infeasible, så snart et budvindue
+    # (punkt g) eller et per-markeds-loft lukker kapacitet ude.
+    if available_cap is not None:
+        begraenset = xr.where(block_series > available_cap, available_cap, block_series)
+        n_klippet = int((begraenset < block_series - 1e-9).sum())
+        if n_klippet:
+            tabt = float((block_series - begraenset).sum())
+            print(
+                f"  {market.label}: blokken er klippet af tilgængelig budkapacitet "
+                f"i {n_klippet} intervaller ({tabt:.0f} MW-timer mindre reservation)"
+            )
+        block_series = begraenset
 
     # Samlet reservation over markedets enheder.
     total = None
@@ -564,10 +787,35 @@ def _add_reservation_gate(
         total = r if total is None else (total + r)
 
     if gate.mode == "driven":
-        m.add_constraints(
-            total == block_series,
-            name=f"{market.var_prefix}_gate_driven",
-        )
+        if window_closed is not None and bool(window_closed.any()):
+            # Punkt (g) mod gatens lighedstegn. Hvor et budvindue lukker en
+            # enhed ude, kan påstanden "der bydes altid blokken" ikke gælde —
+            # den er netop dét, reglen modsiger. Lighedstegnet lempes derfor
+            # til en øvre grænse i de intervaller og bevares i resten.
+            #
+            # Det er ikke en teknikalitet for at undgå infeasibility. Med kun
+            # varmepumpen tilbage skal footroom-bindingen dækkes ved COP ≈ 3,
+            # og sommerens varmelast er for lille til at bære blokken. Modellen
+            # kan altså ikke både adlyde Johns sommerregel og blokken. Det er
+            # regnestykket bag, at Billunds juni-reservation er 0,08 MW.
+            n = int(window_closed.sum())
+            print(
+                f"  {market.label}: lighedstegnet lempet til ≤ i {n} intervaller, "
+                f"hvor et budvindue lukker kapacitet ude"
+            )
+            m.add_constraints(
+                total <= block_series,
+                name=f"{market.var_prefix}_gate_driven_ub",
+            )
+            m.add_constraints(
+                total >= xr.where(window_closed, 0.0, block_series),
+                name=f"{market.var_prefix}_gate_driven_lb",
+            )
+        else:
+            m.add_constraints(
+                total == block_series,
+                name=f"{market.var_prefix}_gate_driven",
+            )
     else:  # 'bound'
         m.add_constraints(
             total <= block_series,
@@ -576,8 +824,9 @@ def _add_reservation_gate(
 
     freq = float(gate_open.mean())
     cm_open = float(price_cap.where(gate_open).mean()) if freq > 0 else 0.0
+    tau_vis = float(threshold.mean()) if hasattr(threshold, "mean") else threshold
     print(
-        f"  {market.label}: CM-gate ({gate.mode}) τ={threshold:.0f} DKK/MW/h, "
+        f"  {market.label}: CM-gate ({gate.mode}) τ={tau_vis:.0f} DKK/MW/h, "
         f"blok={block:.1f} MW → gate-åben {freq*100:.1f}% af intervaller "
         f"(gns CM når åben={cm_open:.0f}), MW-snit≈{freq*block:.2f} MW"
     )
@@ -628,7 +877,7 @@ def add_balancing_reserves(
     # el-forbrug) — fælles for aFRR og mFRR.
     el_cost_per_mwh = (
         data["spot_price"]
-        + cfg.electricity.tariff_consumption_flat
+        + resolve_consumption_tariff(cfg, data)
         + cfg.electricity.electricity_tax
     )
 
@@ -708,7 +957,14 @@ def add_balancing_reserves(
         )
         market_vars = {"aFRR": afrr_vars, "mFRR": mfrr_vars}
         for market in MARKETS:
-            _add_reservation_gate(m, gate, market, market_vars[market.label], data)
+            eligible_m = _eligible_units_for_market(cfg, market)
+            avail, lukket = _available_bid_capacity(
+                cfg, market, eligible_m, data, caps,
+            )
+            _add_reservation_gate(
+                m, cfg, gate, market, market_vars[market.label], data,
+                available_cap=avail, window_closed=lukket,
+            )
 
     # Totale udtryk (summer over aktive markeder)
     total_capacity = 0

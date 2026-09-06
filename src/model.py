@@ -16,6 +16,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import xarray as xr
+
+from src.tariff import resolve_consumption_tariff
 import linopy as lp
 
 from .config import CaseConfig, Unit, Storage
@@ -76,7 +78,9 @@ def compute_marginal_cost(
             neg_alpha = -unit.alpha                    # skalar, positiv for el-forbruger
 
         el_cost_per_mwh_heat = neg_alpha * (
-            spot + cfg.electricity.tariff_consumption_flat + cfg.electricity.electricity_tax
+            spot
+            + resolve_consumption_tariff(cfg, data)
+            + cfg.electricity.electricity_tax
         )
         return el_cost_per_mwh_heat + om
 

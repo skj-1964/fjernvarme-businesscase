@@ -91,7 +91,46 @@ prices:
 # ------------------------------------------------------------------------------
 electricity:
   spot_area: "DK1"
-  tariff_consumption_flat: 125.0
+  tariff_consumption_flat: 125.0   # bevaret som fallback; profilen nedenfor vinder
+
+  # ---------------------------------------------------------------------
+  # TIDSVARIERENDE FORBRUGSTARIF
+  # ---------------------------------------------------------------------
+  # Slå dine tre bånd op på dit eget netselskabs prisblad og skriv dem under
+  # `bands`. Resten kan stå. Har dit netselskab to eller fem bånd, er navnene
+  # frie — de defineres ét sted og refereres i skemaet.
+  #
+  # Elafgiften står her som dokumentation, men lægges til af modellen via
+  # `electricity_tax` ovenfor og indgår IKKE i den opløste serie. De to tal
+  # skal være ens, ellers afvises casen. En lavlasttime bliver altså 122,4
+  # herfra og 126,4 med afgift.
+  #
+  # Helligdage ligger i koden (dansk kalender med påskeberegning, store
+  # bededag afskaffet fra 2024). `extra_holidays` kan supplere.
+  #
+  # Timeintervaller er HALVÅBNE: "06-21" dækker time 6 til og med 20.
+  # Opslaget sker på lokal tid, ikke UTC.
+  tariff_consumption:
+    unit: kr_per_mwh
+    source: "Fiktivt netselskab, A-høj-lignende. Erstat med dit eget prisblad."
+    fixed_components:
+      energinet: 115.0        # transmissions-, system- og balancetarif
+      dv: 0.0                 # drift og vedligehold — nul, men eksplicit
+      elafgift_net: 4.0       # efter elvarmegodtgørelse; skal matche electricity_tax
+    net_tariff:
+      bands:
+        lav: 7.4
+        hoej: 14.8
+        spids: 29.5
+      seasons:
+        vinter:
+          months: [10, 11, 12, 1, 2, 3]
+          weekday: {"00-06": lav, "06-21": spids, "21-24": hoej}
+          weekend: {"00-06": lav, "06-21": hoej,  "21-24": hoej}
+        sommer:
+          months: [4, 5, 6, 7, 8, 9]
+          weekday: {"00-06": lav, "06-24": hoej}
+          weekend: {"00-06": lav, "06-24": lav}
   tariff_production_flat: 4.1
   electricity_tax: 4.0
 
@@ -138,6 +177,12 @@ units:
     min_downtime: 1
     uc_enabled: false
     ancillary:
+      # BUDVINDUE: måneder og lokale timer hvor enheden overhovedet afgiver bud
+      # i kapacitetsmarkedet. Udeladt nøgle = ingen begrænsning. Det er en
+      # driftsbeslutning, ikke en prisrespons — mange værker byder ikke deres
+      # elkedel om sommeren, fordi et vundet bud tvinger produktion frem, som
+      # tankene ikke kan optage. Varmedispatch og spot er urørt.
+      bid_window: {months: [10, 11, 12, 1, 2, 3]}
       afrr_qualified: true
       mfrr_qualified: true
       fcr_qualified: false
@@ -255,17 +300,38 @@ units:
 # VARMELAGER — mindre tank end Billund (10.000 m³)
 # ------------------------------------------------------------------------------
 storage:
-  tank_eksisterende:
+  # TO LAG. Mange værker har flere akkumulatorer på forskellige temperaturer:
+  # varmepumpen leverer ved lavere fremløb end kedlerne, og ΔT — og dermed
+  # kapaciteten — er derfor ikke ens for alle tankene. Skriv ét lager pr.
+  # temperaturniveau frem for ét samlet med et gennemsnitligt ΔT.
+  #
+  # BEGRÆNSNING: modellen har endnu ingen kobling fra enhed til lager. De to
+  # lag er to energilagre med hvert sit ΔT, ikke en rutning af, hvem der må
+  # lade hvad. Det betyder noget om sommeren, hvor varmepumpen i praksis kun
+  # kan lade det lave lag.
+  tank_lav:
     enabled: true
-    volume_m3: 10000
-    delta_t_k: 45.0           # [BEKRÆFT] frem/retur
-    e_max_mwh: null           # beregnes ≈ 523 MWh fra volume + Δt
-    e_initial_mwh: 261        # halvfuld; cycle_binding fikser slutniveau
-    p_max_charge_mw: 25.0     # [BEKRÆFT]
-    p_max_discharge_mw: 25.0  # [BEKRÆFT]
+    volume_m3: 7000
+    delta_t_k: 30.0           # varmepumpe ved 70 °C, retur 40 °C
+    e_max_mwh: null           # beregnes af volumen og ΔT
+    e_initial_mwh: 122
+    p_max_charge_mw: 25.0
+    p_max_discharge_mw: 25.0
     self_discharge_per_hour: 0.0005
     cycle_binding: true
-    notes: "Andeby-tank (fiktiv). Δt/lade-effekt arvet fra billund_2025."
+    notes: "Lavtemperaturlag (fiktivt)."
+
+  tank_hoej:
+    enabled: true
+    volume_m3: 3000
+    delta_t_k: 55.0           # kedler ved 95 °C, retur 40 °C
+    e_max_mwh: null
+    e_initial_mwh: 96
+    p_max_charge_mw: 25.0
+    p_max_discharge_mw: 25.0
+    self_discharge_per_hour: 0.0005
+    cycle_binding: true
+    notes: "Højtemperaturlag (fiktivt)."
 
 # ------------------------------------------------------------------------------
 # BALANCEMARKED — arvet fra billund_2025 (inert uden --with-balancing)
@@ -278,9 +344,42 @@ balancing:
     up_markup_dkk_mwh: 500
     up_markup_max_dkk_mwh: 2000
   ancillary_caps:
+    # per_unit_mw er prækvalificeringen: hvor meget eloptag enheden må binde
+    # i alt på tværs af begge markeder.
     per_unit_mw:
-      vp_luft_vand: 6.0       # [BEKRÆFT] arvet; inert uden balancering
-    total_mw: 14.0            # [BEKRÆFT] arvet fra billund
+      vp_luft_vand: 6.0       # [BEKRÆFT] fiktiv prækvalificering
+    # per_unit_market_mw er værkets EGEN fordeling mellem markederne. Begge
+    # lofter håndhæves, og den strammere binder. Summen må gerne være mindre
+    # end prækvalificeringen — det er den normalt.
+    per_unit_market_mw:
+      vp_luft_vand: {afrr: 2.0, mfrr: 3.0}
+    total_mw: 14.0            # [BEKRÆFT] samlet prækvalificeret kapacitet
+
+  # ---------------------------------------------------------------------
+  # BUDTÆRSKEL REGNET AF BRÆNDSELSSTAKKEN
+  # ---------------------------------------------------------------------
+  # τ(t) = spot + tarif + COP·var_om − COP·alternativ
+  #
+  # Alternativomkostningen ved at binde 1 MW eloptag i én time: hvad elvarmen
+  # koster, minus hvad den varme ellers ville have kostet. Er kapacitets-
+  # prisen større, betaler det sig at byde.
+  #
+  # Det er den parameter, der ellers kræver et års afregningsdata at
+  # kalibrere. Her regner modellen den af enhederne og brændselspriserne i
+  # denne fil. Et værk med dyr gas på marginalen om vinteren får automatisk en
+  # højere tærskel end et værk med rigelig biomasse.
+  #
+  # reference_unit er den elforbrugende enhed, tærsklen regnes for.
+  # floor_dkk_mw_h er et gulv på budprisen.
+  reservation_gate:
+    enabled: false            # slå til med --with-balancing-scenarier
+    mode: bound
+    afrr:
+      opportunity_cost: {reference_unit: vp_luft_vand, floor_dkk_mw_h: 50}
+      block_mw: 3.0
+    mfrr:
+      opportunity_cost: {reference_unit: vp_luft_vand, floor_dkk_mw_h: 50}
+      block_mw: 4.0
 
 # ------------------------------------------------------------------------------
 # INVESTERING (ikke aktiv)
