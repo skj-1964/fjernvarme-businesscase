@@ -17,7 +17,7 @@ det fulde solve (run_case + capture_rate.py) afslører om/hvor den binder.
 
 Kør:
     .venv/bin/python scripts/calibrate_gate.py \
-        --case cases/billund_sporB_H2_2025.yaml \
+        --case cases/billund_sporB_rullende.yaml \
         --facit noter/billund_balance_facit_H2_2025_tidy.csv \
         --start 2025-07-01 --end 2025-12-31
 """

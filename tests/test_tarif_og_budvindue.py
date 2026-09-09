@@ -236,9 +236,41 @@ def test_uden_profil_bruges_den_flade_vaerdi():
     assert float(serie.mean()) == pytest.approx(128.2)
 
 
-def test_flad_kontrolprofil_giver_den_flade_vaerdi():
-    """Regressionsvagten: profilen i d_tarif_flad skal give 128,2 i hver time."""
-    cfg = load_case(str(CASES / "billund_sporB_v3_d_tarif_flad.yaml"))
+def test_flad_kontrolprofil_giver_den_flade_vaerdi(tmp_path):
+    """Regressionsvagten: er alle tre bånd ens, skal profilen give samme værdi
+    i hver eneste time — uanset sæson, ugedag og klokkeslæt.
+
+    Kontrollen laa tidligere i cases/billund_sporB_v3_d_tarif_flad.yaml. Den
+    case blev slettet 9. september 2026 ved oprydningen til fem cases, saa
+    profilen bygges nu i testen. 115,0 + 13,2 + 0,0 + 0,0 = 128,2.
+    """
+    import yaml
+
+    raw = yaml.safe_load((CASES / "billund_sporB.yaml").read_text())
+    raw["electricity"]["tariff_consumption"] = {
+        "unit": "kr_per_mwh",
+        "source": "regressionskontrol — flad 128,2",
+        "fixed_components": {"energinet": 115.0, "dv": 0.0, "elafgift_net": 4.0},
+        "net_tariff": {
+            "bands": {"lav": 13.2, "hoej": 13.2, "spids": 13.2},
+            "seasons": {
+                "vinter": {
+                    "months": [10, 11, 12, 1, 2, 3],
+                    "weekday": {"00-06": "lav", "06-21": "spids", "21-24": "hoej"},
+                    "weekend": {"00-06": "lav", "06-21": "hoej", "21-24": "hoej"},
+                },
+                "sommer": {
+                    "months": [4, 5, 6, 7, 8, 9],
+                    "weekday": {"00-06": "lav", "06-24": "hoej"},
+                    "weekend": {"00-06": "lav", "06-24": "lav"},
+                },
+            },
+        },
+    }
+    sti = tmp_path / "flad.yaml"
+    sti.write_text(yaml.safe_dump(raw, allow_unicode=True))
+
+    cfg = load_case(str(sti))
     serie = resolve_consumption_tariff(cfg, _dataset("2026-03-01", 24 * 40))
     assert float(serie.min()) == pytest.approx(128.2)
     assert float(serie.max()) == pytest.approx(128.2)

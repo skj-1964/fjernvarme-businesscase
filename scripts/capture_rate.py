@@ -8,7 +8,7 @@ pr. marked) UDEN gen-solve. Aggregerer pr. måned og marked mod facit-CSV.
 
 Kør:
     .venv/bin/python scripts/capture_rate.py <dispatch.nc> \
-        --case cases/billund_sporB_H2_2025.yaml \
+        --case cases/billund_sporB_rullende.yaml \
         --facit noter/billund_balance_facit_H2_2025_tidy.csv \
         --start 2025-07-01 --end 2025-12-31
 

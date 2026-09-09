@@ -1,4 +1,15 @@
 # ==============================================================================
+# BILLUND_SPORB_RULLENDE - rullende aar 1. juli 2025 - 30. juni 2026
+# ==============================================================================
+# Afledt af billund_sporB.yaml ved kun at aendre vindue og DMI-station.
+#
+# ADVARSEL OM VALIDERING: vinduet indeholder januar-februar 2026, hvor
+# varmepumperne var i indkoering. Til en FREMADRETTET businesscase er det
+# fint. Til validering mod facit er de to maaneder ikke troevaerdige -- det
+# rene vindue starter marts 2026, og det er derfor billund_sporB.yaml findes.
+# ==============================================================================
+
+# ==============================================================================
 # BILLUND VARMEVÆRK — Backtest mod realiseret drift, jan–april 2026
 # ==============================================================================
 # Backtest af den NYE balancering (activation_value, kovarians-korrekt av(t))
@@ -42,7 +53,7 @@
 # ==============================================================================
 
 meta:
-  case_name: "billund_backtest_jan_apr_2026"
+  case_name: "billund_sporB_rullende"
   description: >
     Backtest af activation_value-balancering mod realiseret drift jan–april
     2026. elkedel_ny under inkøring (ikke i drift). Total reserve-loft 14 MW =
@@ -56,11 +67,14 @@ meta:
 # ------------------------------------------------------------------------------
 # EKSTERNE DATAKILDER
 # ------------------------------------------------------------------------------
-# Klimaomraade og priszone hoerer til vaerket og staar derfor i casen, ikke som
-# et CLI-flag man skal huske. --dmi-area og --price-zone findes stadig og vinder,
-# naar de gives eksplicit.
+# karup, IKKE fyn. fyn mangler 1. januar 2026 (2 timer) og 28. februar 2026
+# (29 timer) og fejler paa coverage i dette vindue. karup har nul huller.
+#
+# NB: marts-juni-caserne koerer paa fyn, fordi ankeret er produceret der.
+# Resultater fra de to vinduer kan derfor ikke sammenlignes direkte -- valget
+# af DMI-station flytter objektivet med knap fire procent.
 data:
-  dmi_area: "fyn"        # Billund har ingen egen DMI-station; fyn er klimatisk taettest
+  dmi_area: "karup"
   price_zone: "DK1"
 
 # ------------------------------------------------------------------------------
@@ -69,8 +83,8 @@ data:
 time:
   # Aftalt med John: kør marts–juni 2026 (rent vindue, post-indkøring, VP på balance).
   # Jan–feb udeladt (indkøringsanomali). Slut ved 23/6 — varme-CSV stopper 24/6 06:00.
-  start: "2026-03-01T00:00:00Z"
-  end:   "2026-06-23T23:00:00Z"
+  start: "2025-07-01T00:00:00Z"
+  end:   "2026-06-30T23:00:00Z"
   resolution: "1h"
 
 # ------------------------------------------------------------------------------
@@ -331,7 +345,7 @@ balancing:
   #   mFRR: tau=300 → frekvens 11,4 % → B=4,46
   reservation_gate:
     enabled: true
-    mode: bound
+    mode: driven
     afrr: { cm_threshold_dkk_mw_h: 75, block_mw: 2.82 }
     mfrr: { cm_threshold_dkk_mw_h: 300, block_mw: 4.46 }
 

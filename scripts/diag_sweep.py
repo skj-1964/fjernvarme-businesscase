@@ -1,5 +1,5 @@
 """
-scripts/diag_sweep.py — Balance-diagnostik (Diagnose 1 + 3) for billund_2025.
+scripts/diag_sweep.py — Balance-diagnostik (Diagnose 1 + 3) for billund_sporA_rullende.
 
 KUN MÅLING/RAPPORTERING. Ingen ændring af dispatch-logik. Objektivet bruger
 uændret brutto-av; her attribueres total_mw-cap'ens bidrag som en kurve.
@@ -28,7 +28,7 @@ from src.solve import solve_and_extract
 from src.reporting import kpi_summary
 from src.balancing import summarize_reserves, MARKETS
 
-CASE = "cases/billund_2025.yaml"
+CASE = "cases/billund_sporA_rullende.yaml"
 CAPS = [8.65, 13.0, 17.3, 25.0, 33.0]      # MW (combined aFRR+mFRR, alle enheder)
 CAP_LABELS = {
     8.65: "prækval (1 pulje)",

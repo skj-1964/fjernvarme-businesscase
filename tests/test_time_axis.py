@@ -19,7 +19,7 @@ from run_case import _apply_time_override
 from src.config import load_case
 from src.data_loader import make_time_index
 
-CASE = "cases/billund_2025.yaml"
+CASE = "cases/billund_sporA_rullende.yaml"
 
 
 def _cfg(resolution: str):

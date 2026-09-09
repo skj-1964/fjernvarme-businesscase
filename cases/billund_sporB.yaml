@@ -1,56 +1,48 @@
 # ==============================================================================
-# BILLUND VARMEVÆRK — Spor B (deskriptiv, driven), marts–juni 2026
+# BILLUND VARMEVÆRK — Backtest mod realiseret drift, jan–april 2026
 # ==============================================================================
-# v3. Afløser billund_sporB_v2.yaml. Ændringer i v3 (trin 1, session 24):
+# Backtest af den NYE balancering (activation_value, kovarians-korrekt av(t))
+# mod Billunds realiserede balanceindtægt jan–april 2026.
 #
-#   1. GASMOTOR SPLITTET I TO ENHEDER. John (26/8 2026): to motorer à 1,7 MW
-#      varme / 1,1 MW el UDEN dellast. v2 havde én aggregeret enhed på 2,8 MW
-#      med p_min_heat 0,9 — altså en dellastfrihed anlægget ikke har.
-#      p_min_heat = p_max_heat = 1,7 og uc_enabled: true pr. motor.
-#      [BEKRÆFT] alpha ændret 0,72 → 0,647 (= 1,1/1,7 fra Johns effektangivelse).
-#      Rul tilbage til 0,72 hvis 1,1 MW el er nominel og ikke ved fuld last.
-#
-#   2. VP'S BUD FORDELT PR. MARKED. John: VP bydes med 2 MW eloptag i aFRR-CM
-#      og 3 MW i mFRR-CM, inden for de 5,52 MW prækvalificeret i alt.
-#      Kræver balancing.ancillary_caps.per_unit_market_mw (ny i src/config.py
-#      + src/balancing.py). Bemærk: 2 + 3 = 5 < 5,52 — begge lofter håndhæves,
-#      og per-markeds-loftet binder derfor før prækvalificeringen.
-#
-#   3. HEADER OG META BRAGT AJOUR. v2 arvede sin header fra jan–apr-casen:
-#      forkert vindue, 14 MW-loft, og to "BEKRÆFT"-punkter der siden er afgjort.
-#
-# AFGJORTE PUNKTER (var åbne i v2's header):
-#   * Elafgift = 4,0 DKK/MWh. Johns tarifoversigt viser, at de tre A-høj-bånd
-#     122,4 / 129,8 / 144,5 ligger præcis 4,0 under summerne inkl. elafgift.
-#     tariff_consumption_flat: 128,2 er derfor konsistent med electricity_tax:
-#     4,0 og må ikke få de 4 lagt oveni.
-#   * Tankvolumen = 14.000 m³ (10.000 + 2.000 + 2.000). Bekræftet af John.
-#
-# STADIG ÅBENT (bevidst IKKE rørt i v3 — hver har sit eget trin):
-#   * delta_t_k er flad 40 K. Reelt: VP leverer kun 70/80 °C til den store
-#     tank, resten 95 °C i de to små. Punkt (e), tolagstank.
-#   * tariff_consumption_flat er ét tal. Profilen (lav/høj/spids) er punkt (d).
-#   * reservation_gate er en fast CM-tærskel. Punkt (a)+(b)+(c).
-#   * Sommerens lagerbegrænsning på budafgivelsen er umodelleret. Punkt (g).
+# Centrale forskelle ift. H2 2025-fase2-casen:
+#   * balancing.method = activation_value (ny). Skift til legacy for A/B:
+#       --balancing-method legacy
+#   * elkedel_ny er IKKE i drift (under inkøring) → enabled: false
+#   * ancillary_caps: VP ≤ 6 MW (altid) + total 14 MW = Billunds faktiske
+#     prækvalificering (uafhængigt af hvilke kedler der er enabled).
+#     Erstatter det gamle shared_reserve_cap_mw.
+#   * bid_strategy: op-bud = spot + 500 (Tier 1; bånd op til +2000 er Tier 2).
 #
 # KØRES MED:
-#   python run_case.py cases/billund_sporB_v3.yaml \
-#       --data-source github --df-data-cache data/df-data \
-#       --with-balancing \
-#       --start 2026-03-02 --end 2026-06-23
+#   python run_case.py cases/billund_backtest_jan_apr_2026.yaml \
+#       --data-source github --with-balancing \
+#       --start 2026-01-01 --end 2026-04-30 \
+#       --heat-csv data/billund_abvaerk_hourly.csv
 #
-# REGRESSIONSANKER (v2, samme vindue, jf. STATUS session 23 §3):
-#   Spor A objektiv 5.161.182 · Spor B objektiv 5.786.165 · differens 624.983
-#   Spor B balance vs facit 91 % (aFRR 99, mFRR 84)
-#   Bemærk: differensen er under revision. Analysen af slide 8 viser, at gaten
-#   binder kapacitet i timer, hvor VP-varmen er dyrere end halm (433 mod 243
-#   DKK/MWh i snit over 770 af 854 reservationstimer). Differensen måler
-#   dermed i al væsentlighed vores egen gate-fejl, ikke uindløst værdi.
-#   Tallet må ikke bruges eksternt før punkt (c) er inde.
+# A/B mod gammel metode (samme case, kun toggle):
+#   ... --balancing-method legacy
+#
+# VALIDERING: sammenlign mod realiseret balance-facit jan–apr 2026 pr. produkt
+# (aFRR akt/kap, mFRR akt/kap). Forvent at activation_value rammer aFRR-
+# aktivering markant højere end legacy (kovarians-spikene).
+#
+# ANOMALI — VALIDERINGSVINDUE = MARTS 2026 FREM (John):
+#   Jan–feb 2026 var VP-indkøring, og indkøringen påvirkede balance-
+#   indmeldingen PLANT-BREDT (ikke kun VP'en). Jan–feb er derfor en
+#   indkøringsanomali, IKKE repræsentativ drift, og UDELADES af validering.
+#   Bekræftet ved diagnostik (STATUS v7): plant-bred onset → modelleret jan+feb
+#   = 0. Valideringsvinduet er det RENE vindue marts–april 2026 (facit stopper
+#   ved april). VP'ens available_from nedenfor er det eneste reelle anlægs-
+#   faktum; de øvrige enheders jan/feb-nul modelleres IKKE (udelukkes, ikke fit).
+#
+# BEKRÆFT FØR KØRSEL:
+#   - Prisniveauer (gas/halm) er kopieret fra H2 2025 — opdatér med Q1 2026.
+#   - Tankvolumen jan–apr 2026 (12.000 vs 22.000 m³ VAK26) — sæt fra drift.
+#   - elafgift (4 vs 45,6 DKK/MWh) — som i fase2.
 # ==============================================================================
 
 meta:
-  case_name: "billund_sporB_v3_c_alternativ"
+  case_name: "billund_sporB"
   description: >
     Backtest af activation_value-balancering mod realiseret drift jan–april
     2026. elkedel_ny under inkøring (ikke i drift). Total reserve-loft 14 MW =
@@ -77,7 +69,7 @@ data:
 time:
   # Aftalt med John: kør marts–juni 2026 (rent vindue, post-indkøring, VP på balance).
   # Jan–feb udeladt (indkøringsanomali). Slut ved 23/6 — varme-CSV stopper 24/6 06:00.
-  start: "2026-03-01T00:00:00Z"
+  start: "2026-03-02T00:00:00Z"   # IKKE 03-01: fyn mangler frem til 1. marts kl. 15
   end:   "2026-06-23T23:00:00Z"
   resolution: "1h"
 
@@ -232,56 +224,27 @@ units:
     ancillary: {afrr_qualified: false, mfrr_qualified: false, fcr_qualified: false}
     commissioned: 2015
 
-  gasmotor_1:
+  gasmotor:
     enabled: true
     type: "gas_engine_chp"
-    # John 26/8 2026: to motorer à 1,7 MW varme / 1,1 MW el, UDEN dellast.
-    # p_min = p_max tvinger enten fuld last eller stop; uc_enabled: true er
-    # derfor nødvendig, ellers er enheden bundet til at køre i alle timer.
-    p_max_heat: 1.7
-    p_min_heat: 1.7
-    alpha: 0.647            # [BEKRÆFT] 1,1 MW el / 1,7 MW varme. Var 0,72 i v2.
+    p_max_heat: 2.8
+    p_min_heat: 0.9
+    alpha: 0.72
     fuel: "natural_gas"
     eta_fuel_to_heat: 0.49
     var_om: 608.0
-    start_cost: 1000.0      # 2.000 i v2 for den aggregerede enhed → 1.000 pr. motor
+    start_cost: 2000.0
     min_uptime: 2
     min_downtime: 2
-    uc_enabled: true
+    uc_enabled: false
     initial_status: 0
     co2_emissions_per_mwh_fuel: 0.0
     ancillary:
       afrr_qualified: true
       mfrr_qualified: true
       fcr_qualified: false
-      afrr_max_bid_mw: 0.5
-      mfrr_max_bid_mw: 1.0
-    commissioned: 2000
-
-  gasmotor_2:
-    enabled: true
-    type: "gas_engine_chp"
-    # John 26/8 2026: to motorer à 1,7 MW varme / 1,1 MW el, UDEN dellast.
-    # p_min = p_max tvinger enten fuld last eller stop; uc_enabled: true er
-    # derfor nødvendig, ellers er enheden bundet til at køre i alle timer.
-    p_max_heat: 1.7
-    p_min_heat: 1.7
-    alpha: 0.647            # [BEKRÆFT] 1,1 MW el / 1,7 MW varme. Var 0,72 i v2.
-    fuel: "natural_gas"
-    eta_fuel_to_heat: 0.49
-    var_om: 608.0
-    start_cost: 1000.0      # 2.000 i v2 for den aggregerede enhed → 1.000 pr. motor
-    min_uptime: 2
-    min_downtime: 2
-    uc_enabled: true
-    initial_status: 0
-    co2_emissions_per_mwh_fuel: 0.0
-    ancillary:
-      afrr_qualified: true
-      mfrr_qualified: true
-      fcr_qualified: false
-      afrr_max_bid_mw: 0.5
-      mfrr_max_bid_mw: 1.0
+      afrr_max_bid_mw: 1.0
+      mfrr_max_bid_mw: 2.0
     commissioned: 2000
 
   gaskedel_agg:
@@ -360,13 +323,7 @@ balancing:
     up_markup_max_dkk_mwh: 2000
   ancillary_caps:
     per_unit_mw:
-      vp_luft_vand: 5.52        # John 26/8: prækvalificeret eloptag i alt
-    # John 26/8: VP bydes med 2 MW eloptag i aFRR-CM og 3 MW i mFRR-CM.
-    # Summen 5 MW ligger under prækvalificeringen på 5,52 — begge lofter
-    # håndhæves, så per-markeds-loftet binder først. Fordelingen mellem
-    # markederne bestemmer Billund selv og kan ændres uden ny prækvalificering.
-    per_unit_market_mw:
-      vp_luft_vand: {afrr: 2.0, mfrr: 3.0}
+      vp_luft_vand: 5.52        # John 26/8: prækvalificeret eloptag
     total_mw: 17.52          # John 26/8: 5,52 (VP) + 12 (elkedel_gl)
   # Spor B — CM-gate rekalibreret på det RENE vindue marts–juni 2026.
   # gate-frekvens × block_mw = facit MW-snit (aFRR 0,743 / mFRR 0,509).
@@ -375,14 +332,8 @@ balancing:
   reservation_gate:
     enabled: true
     mode: driven
-    # Punkt (c): tærsklen regnes af brændselsstakken i stedet for at være
-    # kalibreret. Gulvet på 50 kr./MW er Johns egen.
-    afrr:
-      opportunity_cost: {reference_unit: vp_luft_vand, floor_dkk_mw_h: 50}
-      block_mw: 2.82
-    mfrr:
-      opportunity_cost: {reference_unit: vp_luft_vand, floor_dkk_mw_h: 50}
-      block_mw: 4.46
+    afrr: { cm_threshold_dkk_mw_h: 75, block_mw: 2.82 }
+    mfrr: { cm_threshold_dkk_mw_h: 300, block_mw: 4.46 }
 
 
 # ------------------------------------------------------------------------------

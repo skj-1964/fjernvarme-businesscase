@@ -2,16 +2,16 @@
 Kør en case fra kommandolinjen.
 
 Brug:
-    python run_case.py cases/billund_baseline.yaml --dummy
-    python run_case.py cases/billund_baseline.yaml --external
-    python run_case.py cases/billund_baseline.yaml --external --year 2023
-    python run_case.py cases/billund_baseline.yaml --external \
+    python run_case.py cases/billund_sporA.yaml --dummy
+    python run_case.py cases/billund_sporA.yaml --external
+    python run_case.py cases/billund_sporA.yaml --external --year 2023
+    python run_case.py cases/billund_sporA.yaml --external \
         --start 2025-04-01 --end 2026-03-31
-    python run_case.py cases/billund_baseline.yaml --external \
+    python run_case.py cases/billund_sporA.yaml --external \
         --heat-params cases/heat_load_params_v2.yaml
-    python run_case.py cases/billund_baseline.yaml --external \
+    python run_case.py cases/billund_sporA.yaml --external \
         --set storage.tank_eksisterende.volume_m3=4000
-    python run_case.py cases/billund_baseline.yaml --external \
+    python run_case.py cases/billund_sporA.yaml --external \
         --set prices.co2_eua.value=800 --set prices.natural_gas.value=500
 
 Datakilder (vælg én — default er --dummy):
@@ -37,7 +37,7 @@ Heat-load parametre (kun relevante med --external):
                           mod EnergyPRO eller anden ekstern reference,
                           så syntese-forskelle elimineres som
                           afvigelseskilde. Eksempel:
-                            python run_case.py cases/billund_baseline.yaml \\
+                            python run_case.py cases/billund_sporA.yaml \\
                                 --external \\
                                 --heat-csv data/billund_abvaerk_hourly.csv
     --heat-csv-column COL  — kolonnenavn (default: heat_mw_abvaerk)
@@ -54,9 +54,9 @@ Generisk YAML-override (kan gentages):
 
 Output:
     Alle filer får præfiks der afspejler kørslen, fx:
-        billund_baseline__ext__2024__off-tank_eksisterende_dispatch.png
-        billund_baseline__ext__2025-04-01_2026-03-31__bal_hourly.csv
-        billund_baseline__ext__2024__set-volume_m3-4000_dispatch.png
+        billund_sporA__ext__2024__off-tank_eksisterende_dispatch.png
+        billund_sporA__ext__2025-04-01_2026-03-31__bal_hourly.csv
+        billund_sporA__ext__2024__set-volume_m3-4000_dispatch.png
     Format: {case_name}__{data}__{periode}[__bal][__{overrides}]
     Perioden er enten året (hvis hele kalenderåret) eller start_end.
     Overrides er alfabetisk sorterede; samme scenarie giver altid samme
@@ -247,9 +247,9 @@ def _build_output_stem(args, cfg) -> str:
     individuelle overrides.
 
     Eksempler:
-      billund_baseline__ext__2024
-      billund_baseline__ext__2024__off-tank_eksisterende
-      billund_baseline__dummy__2024__off-halmkedel-on-overskudsvarme
+      billund_sporA__ext__2024
+      billund_sporA__ext__2024__off-tank_eksisterende
+      billund_sporA__dummy__2024__off-halmkedel-on-overskudsvarme
     """
     parts = [cfg.meta["case_name"]]
 
@@ -264,7 +264,7 @@ def _build_output_stem(args, cfg) -> str:
     # Periode — læses fra cfg (post-override). Hvis det er et rent kalenderår,
     # bruges kun året (bagudkompatibel med tidligere filnavne). Ellers bruges
     # start_end i ISO-format, hvilket er entydigt og sorterbart i fx:
-    #   billund_baseline__ext__2025-04-01_2026-03-31__bal
+    #   billund_sporA__ext__2025-04-01_2026-03-31__bal
     start_ts = pd.Timestamp(cfg.time.start)
     end_ts = pd.Timestamp(cfg.time.end)
     is_full_year = (

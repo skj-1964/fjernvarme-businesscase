@@ -19,7 +19,7 @@ import pytest
 from src.config import DataOptions, load_case
 
 CASES = Path("cases")
-BASE = CASES / "billund_sporA_v2.yaml"
+BASE = CASES / "billund_sporA.yaml"
 
 
 def _med_data_blok(blok: str) -> str:

@@ -169,8 +169,8 @@ def main():
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p.add_argument("--case", default=str(REPO_ROOT / "cases/billund_baseline.yaml"),
-                   help="Case-YAML der angiver tidszone og lokation (default: billund_baseline.yaml)")
+    p.add_argument("--case", default=str(REPO_ROOT / "cases/billund_sporA.yaml"),
+                   help="Case-YAML der angiver tidszone og lokation (default: billund_sporA.yaml)")
     p.add_argument("--measured", default=str(REPO_ROOT / "data/billund_abvaerk_hourly.csv"),
                    help="CSV med målt varmebehov [MW] (default: data/billund_abvaerk_hourly.csv)")
     p.add_argument("--measured-col", default="heat_mw_abvaerk",

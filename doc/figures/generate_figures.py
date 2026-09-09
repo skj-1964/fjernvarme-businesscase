@@ -189,7 +189,7 @@ def fig_2x2_matrix():
 # FIG 3: Månedlig varmeproduktion med tank+balancing (base case C)
 # =============================================================================
 def fig_monthly_dispatch():
-    df = pd.read_csv(DATA / 'billund_baseline__ext__2025-04-01_2026-03-31__bal_monthly.csv',
+    df = pd.read_csv(DATA / 'billund_sporA__ext__2025-04-01_2026-03-31__bal_monthly.csv',
                      index_col=0)
     # Drop "År"-row, konverter index til int
     df = df.drop('År', errors='ignore')
@@ -261,10 +261,10 @@ def fig_monthly_dispatch():
 def fig_unit_dispatch_4scenarier():
     # Indlæs KPI fra alle 4 scenarier
     scenarios = {
-        'A: Tank, u/bal': DATA / 'billund_baseline__ext__2025-04-01_2026-03-31_kpi.csv',
-        'B: U/tank, u/bal': DATA / 'billund_baseline__ext__2025-04-01_2026-03-31__off-tank_eksisterende_kpi.csv',
-        'C: Tank, m/bal': DATA / 'billund_baseline__ext__2025-04-01_2026-03-31__bal_kpi.csv',
-        'D: U/tank, m/bal': DATA / 'billund_baseline__ext__2025-04-01_2026-03-31__bal__off-tank_eksisterende_kpi.csv',
+        'A: Tank, u/bal': DATA / 'billund_sporA__ext__2025-04-01_2026-03-31_kpi.csv',
+        'B: U/tank, u/bal': DATA / 'billund_sporA__ext__2025-04-01_2026-03-31__off-tank_eksisterende_kpi.csv',
+        'C: Tank, m/bal': DATA / 'billund_sporA__ext__2025-04-01_2026-03-31__bal_kpi.csv',
+        'D: U/tank, m/bal': DATA / 'billund_sporA__ext__2025-04-01_2026-03-31__bal__off-tank_eksisterende_kpi.csv',
     }
 
     unit_order = ['vp_luft_vand', 'elkedel_ny', 'halmkedel',
@@ -493,7 +493,7 @@ def fig_tank_decomp():
 # =============================================================================
 def fig_cop_curve():
     # Indlæs timedata for COP i praksis per måned
-    df = pd.read_csv(DATA / 'billund_baseline__ext__2025-04-01_2026-03-31__bal_hourly.csv',
+    df = pd.read_csv(DATA / 'billund_sporA__ext__2025-04-01_2026-03-31__bal_hourly.csv',
                      parse_dates=['timestamp'])
     df['month'] = df['timestamp'].dt.month
 

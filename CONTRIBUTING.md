@@ -33,7 +33,7 @@ Vi tager imod alt der gør modellen mere brugbar for danske fjernvarme­selskabe
 4. **Test at den kørte 2×2-matrix stadig virker** før I sender — det er den
    primære smoke-test:
    ```bash
-   python run_case.py cases/billund_baseline.yaml --external \
+   python run_case.py cases/billund_sporA.yaml --external \
        --start 2025-04-01 --end 2026-03-31 --with-balancing
    ```
 5. **Commit og push:**
@@ -51,7 +51,7 @@ Vi tager imod alt der gør modellen mere brugbar for danske fjernvarme­selskabe
 
 - **Sprog:** dokumentation og kommentarer på dansk, kode-identifiers på
   engelsk (det matcher resten af kodebasen).
-- **YAML:** følg strukturen i `cases/billund_baseline.yaml`. Brug `[TBC]`
+- **YAML:** følg strukturen i `cases/billund_sporA.yaml`. Brug `[TBC]`
   som markering for værdier der afventer bekræftelse.
 - **Python:** følg den eksisterende stil (PEP-8 i grove træk). Hold linjer
   under ~100 tegn. Tilføj docstrings på nye funktioner.

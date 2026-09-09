@@ -27,18 +27,24 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 CASES = REPO_ROOT / "cases"
 
 
-def test_v3_cases_baerer_johns_fordeling():
-    """v3-casene skal have præcis 2 MW aFRR / 3 MW mFRR på VP'en."""
-    for navn in ("billund_sporA_v3.yaml", "billund_sporB_v3.yaml"):
-        cfg = load_case(str(CASES / navn))
-        caps = cfg.ancillary_caps
-        assert caps is not None, f"{navn}: ancillary_caps mangler"
-        assert caps.per_unit_market_mw == {
-            "vp_luft_vand": {"afrr": 2.0, "mfrr": 3.0}
-        }, f"{navn}: per_unit_market_mw afviger fra Johns oplysning"
-        # Prækvalificeringen skal stadig stå ved siden af — de to lofter er
-        # ikke alternativer, og summen 2+3 ligger under 5,52 med vilje.
-        assert caps.per_unit_mw["vp_luft_vand"] == pytest.approx(5.52)
+def test_referencecasen_baerer_fordelingen_pr_marked():
+    """Andeby skal demonstrere per-marked-fordelingen, som er den feature
+    andre værker skal kopiere.
+
+    NB: tallene her er ANDEBYS fiktive (6,0 MW prækvalificeret, 2+3 fordelt),
+    ikke Billunds. Johns 5,52 MW lå i billund_sporA_v3/billund_sporB_v3, som
+    blev slettet 9. september 2026 ved oprydningen til fem cases. Ingen
+    Billund-case bærer per_unit_market_mw længere — skal den tilbage, er det
+    en modelbeslutning, ikke en genindsættelse."""
+    cfg = load_case(str(CASES / "andeby.yaml"))
+    caps = cfg.ancillary_caps
+    assert caps is not None, "andeby.yaml: ancillary_caps mangler"
+    assert caps.per_unit_market_mw == {
+        "vp_luft_vand": {"afrr": 2.0, "mfrr": 3.0}
+    }
+    # Prækvalificeringen skal stå ved siden af — de to lofter er ikke
+    # alternativer, og summen 2+3 ligger under 6,0 med vilje.
+    assert caps.per_unit_mw["vp_luft_vand"] == pytest.approx(6.0)
 
 
 def test_ukendt_markedsnoegle_afvises():
@@ -68,9 +74,9 @@ def test_bagudkompatibilitet_alle_eksisterende_cases():
         if caps is None:
             continue
         assert isinstance(caps.per_unit_market_mw, dict)
-        if "_v3" not in sti.name and sti.name != "andeby.yaml":
+        if sti.name != "andeby.yaml":
             assert caps.per_unit_market_mw == {}, (
-                f"{sti.name} har uventet per_unit_market_mw — kun v3-casene og "
+                f"{sti.name} har uventet per_unit_market_mw — kun "
                 f"referencecasen andeby.yaml skal bære fordelingen"
             )
         rørte += 1

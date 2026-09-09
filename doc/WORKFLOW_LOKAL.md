@@ -45,7 +45,7 @@ pip install -r requirements.txt
 Test at det virker:
 
 ```bash
-python run_case.py cases/billund_baseline.yaml --dummy
+python run_case.py cases/billund_sporA.yaml --dummy
 ```
 
 Med `--dummy` bruges syntetiske data — ingen API-kald, kører på sekunder.
@@ -120,7 +120,7 @@ Når I bygger en lokal variant til jeres eget værk, anbefales:
 
 ```bash
 # Lav en case-fil med jeres navn
-cp cases/billund_baseline.yaml cases/<jeres_værk>_baseline.yaml
+cp cases/billund_sporA.yaml cases/<jeres_værk>_baseline.yaml
 git add cases/<jeres_værk>_baseline.yaml
 git commit -m "Initial baseline for <jeres værk>"
 ```

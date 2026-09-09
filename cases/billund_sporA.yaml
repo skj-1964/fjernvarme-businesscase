@@ -1,40 +1,52 @@
 # ==============================================================================
-# BILLUND VARMEVÆRK — Spor B (deskriptiv): CM-pris-gate på reservationen
+# BILLUND VARMEVÆRK — Backtest mod realiseret drift, jan–april 2026
 # ==============================================================================
-# Afledt af billund_backtest_jan_apr_2026.yaml (samme flåde, samme periode,
-# elkedel_ny ude). Eneste ændring ift. backtest-casen: reservation_gate er
-# aktiv (mode=driven). Reservationen drives nu af markedets day-ahead
-# kapacitetspris (CM) i stedet for at være kontinuerlig op til loftet.
+# Backtest af den NYE balancering (activation_value, kovarians-korrekt av(t))
+# mod Billunds realiserede balanceindtægt jan–april 2026.
 #
-# EMPIRISK FUNDAMENT (jf. noter/notat_sporB_design.md):
-#   Billunds reservation er en gate på CM-prisen: reservationsfrekvensen stiger
-#   monotont fra ~3 % (lav CM) til ~70 % (høj CM). Vi modellerer det som en hard
-#   CM-tærskel pr. marked. Tærskel + blok er kalibreret til Q1-2026-snit, så
-#   gate-frekvens × blok = facit MW-snit (aFRR 0,73 / mFRR 0,48).
+# Centrale forskelle ift. H2 2025-fase2-casen:
+#   * balancing.method = activation_value (ny). Skift til legacy for A/B:
+#       --balancing-method legacy
+#   * elkedel_ny er IKKE i drift (under inkøring) → enabled: false
+#   * ancillary_caps: VP ≤ 6 MW (altid) + total 14 MW = Billunds faktiske
+#     prækvalificering (uafhængigt af hvilke kedler der er enabled).
+#     Erstatter det gamle shared_reserve_cap_mw.
+#   * bid_strategy: op-bud = spot + 500 (Tier 1; bånd op til +2000 er Tier 2).
 #
 # KØRES MED:
-#   python run_case.py cases/billund_sporB_q1_2026.yaml \
-#       --data-source github --df-data-cache data/df-data --with-balancing \
+#   python run_case.py cases/billund_backtest_jan_apr_2026.yaml \
+#       --data-source github --with-balancing \
 #       --start 2026-01-01 --end 2026-04-30 \
-#       --heat-csv data/billund_abvaerk_hourly.csv \
-#       --balancing-method activation_value --out-dir output/sporB_q1_2026
+#       --heat-csv data/billund_abvaerk_hourly.csv
 #
-# VALIDERING: scripts/capture_rate_q1_2026.py mod balance-facit Q1 2026.
-#   1. Reservation MW-snit pr. måned (aFRR) reproducerer det selektive mønster
-#      0,51 / 0,04 / 1,12 / 1,23 (særligt februar-dykket).
-#   2. Kapacitetsindtægt nærmer sig facit 2,17 mio (fra modellens 4,36).
-#   3. Aktiverings-capture stiger markant fra ~6 % (tester foresight-hypotesen).
+# A/B mod gammel metode (samme case, kun toggle):
+#   ... --balancing-method legacy
 #
-# total_mw blir på 14 (Billunds prækvalificering): gaten binder før loftet, så
-# cap-niveauet bør være ~irrelevant nu — det er i sig selv en bekræftelse.
+# VALIDERING: sammenlign mod realiseret balance-facit jan–apr 2026 pr. produkt
+# (aFRR akt/kap, mFRR akt/kap). Forvent at activation_value rammer aFRR-
+# aktivering markant højere end legacy (kovarians-spikene).
+#
+# ANOMALI — VALIDERINGSVINDUE = MARTS 2026 FREM (John):
+#   Jan–feb 2026 var VP-indkøring, og indkøringen påvirkede balance-
+#   indmeldingen PLANT-BREDT (ikke kun VP'en). Jan–feb er derfor en
+#   indkøringsanomali, IKKE repræsentativ drift, og UDELADES af validering.
+#   Bekræftet ved diagnostik (STATUS v7): plant-bred onset → modelleret jan+feb
+#   = 0. Valideringsvinduet er det RENE vindue marts–april 2026 (facit stopper
+#   ved april). VP'ens available_from nedenfor er det eneste reelle anlægs-
+#   faktum; de øvrige enheders jan/feb-nul modelleres IKKE (udelukkes, ikke fit).
+#
+# BEKRÆFT FØR KØRSEL:
+#   - Prisniveauer (gas/halm) er kopieret fra H2 2025 — opdatér med Q1 2026.
+#   - Tankvolumen jan–apr 2026 (12.000 vs 22.000 m³ VAK26) — sæt fra drift.
+#   - elafgift (4 vs 45,6 DKK/MWh) — som i fase2.
 # ==============================================================================
 
 meta:
-  case_name: "billund_sporB_q1_2026"
+  case_name: "billund_sporA"
   description: >
-    Spor B (deskriptiv): CM-pris-gate (mode=driven) på reservationen. Samme
-    flåde/periode som backtest_jan_apr_2026 (elkedel_ny ude, cap 14 MW). Gaten
-    drives af day-ahead CM-prisen pr. marked; tærskler kalibreret til Q1-2026.
+    Backtest af activation_value-balancering mod realiseret drift jan–april
+    2026. elkedel_ny under inkøring (ikke i drift). Total reserve-loft 14 MW =
+    Billunds faktiske prækvalificering. Op-bud = spot + 500 DKK/MWh.
     Sammenlignes mod realiseret balance-facit.
   timezone_internal: "UTC"
   timezone_reporting: "Europe/Copenhagen"
@@ -55,8 +67,10 @@ data:
 # TIDSHORISONT
 # ------------------------------------------------------------------------------
 time:
-  start: "2026-01-01T00:00:00Z"
-  end:   "2026-04-30T23:00:00Z"
+  # Aftalt med John: kør marts–juni 2026 (rent vindue, post-indkøring, VP på balance).
+  # Jan–feb udeladt (indkøringsanomali). Slut ved 23/6 — varme-CSV stopper 24/6 06:00.
+  start: "2026-03-02T00:00:00Z"   # IKKE 03-01: fyn mangler frem til 1. marts kl. 15
+  end:   "2026-06-23T23:00:00Z"
   resolution: "1h"
 
 # ------------------------------------------------------------------------------
@@ -101,7 +115,7 @@ prices:
 # ------------------------------------------------------------------------------
 electricity:
   spot_area: "DK1"
-  tariff_consumption_flat: 125.0
+  tariff_consumption_flat: 128.2   # faktisk marginal A-høj i vinduet (kun A-høj fra maj)
   tariff_production_flat: 4.1
   electricity_tax: 4.0
 
@@ -132,6 +146,10 @@ units:
       afrr_qualified: true
       mfrr_qualified: true
       fcr_qualified: false
+      # ANLÆGSFAKTUM (John): VP'en gik først på balancemarkedet 1. marts 2026.
+      # Februars nul-deltagelse er en onset/idriftsættelse, ikke en prisrespons.
+      # Gaten nulstiller VP'ens reservation før denne dato; varmedispatch urørt.
+      available_from: "2026-03-01"
     commissioned: 2025
 
   # ---- Elkedel ny (30 MW) — IKKE i drift jan–apr 2026 (under inkøring) ----
@@ -157,7 +175,7 @@ units:
   elkedel_gl:
     enabled: true
     type: "electric_boiler"
-    p_max_heat: 15.0
+    p_max_heat: 12.0          # John 26/8: godkendt 15 MW, teknisk droslet til 12 MW
     p_min_heat: 0.0
     alpha: -1.0
     fuel: "electricity"
@@ -267,7 +285,7 @@ units:
 storage:
   tank_eksisterende:
     enabled: true
-    volume_m3: 12000
+    volume_m3: 14000          # John: 10.000 + 2.000 + 2.000 m3 VAK
     delta_t_k: 40.0
     e_max_mwh: null
     e_initial_mwh: 279
@@ -275,20 +293,29 @@ storage:
     p_max_discharge_mw: 60.0
     self_discharge_per_hour: 0.0
     cycle_binding: true
-    notes: "BEKRÆFT volumen for jan–apr 2026 fra driftsvirkelighed."
+    notes: "Volumen bekræftet 14.000 m3. [BEKRÆFT delta_t: VP vinter 80C=40K, elkedler/biomasse 95C=55K, VP sommer 70C=30K — sæt sæson-/kilde-afhængigt]"
 
 # ------------------------------------------------------------------------------
-# BALANCEMARKED — activation_value + CM-pris-gate (Spor B, driven)
+# BALANCEMARKED — ny metode (activation_value) + generiske lofter
 # ------------------------------------------------------------------------------
-# reservation_gate (Spor B, deskriptiv):
-#   enabled: true, mode: driven → reservationen DRIVES af CM-gaten:
-#       Σ_i r_m[i,t] == gate_m(t) · block_mw
-#   gate_m(t) = 1 hvis CM_m(t) ≥ cm_threshold_dkk_mw_h ellers 0.
-#   Tærskel + blok er Q1-2026-snit-kalibrering (afledte parametre, ikke rådata):
-#     aFRR: τ=100, B=3.0  → gate-frekvens ~24 % → MW-snit ~0,73 ≈ facit 0,73
-#     mFRR: τ=421, B=5.1  → gate-frekvens ~9 %  → MW-snit ~0,48 ≈ facit 0,48
-#   mode: bound reserveres til Spor A (normativ, forventet CM-pris + opportunity
-#   cost-tærskel) — byg-klar, men køres ikke nu.
+# method:
+#   activation_value = kovarians-korrekt av(t), beregnet i datalaget fra
+#                      15-min aktiveringspriser mod budkurven spot + markup.
+#   legacy           = gammel E[α]×E[p]. Skift via --balancing-method legacy.
+#
+# bid_strategy (jf. interview John/Jens, Billund):
+#   op-bud = spot + up_markup_dkk_mwh. up_markup_max er øvre båndgrænse
+#   (tank-styret positionering, Tier 2 — bruges ikke i Tier-1-av endnu).
+#   down_markdown udeladt → up-only (som nuværende modelscope).
+#
+# ancillary_caps:
+#   per_unit_mw: VP ≤ 6 MW (aFRR+mFRR samlet), håndhæves ALTID.
+#   total_mw:    Σ alle bud ≤ 14 MW = Billunds FAKTISKE prækvalificerede
+#                reservekapacitet (fælles loft over begge markeder/alle enheder
+#                pr. time). Var tidligere 15 (sat ud fra elkedel_gl alene); de
+#                14 er den reelle prækvalificering og bruges i begge cases.
+#                Grænsen følger prækvalificering, ikke hvilke enheder der er
+#                enabled eller hvilket tidsvindue der køres.
 balancing:
   method: activation_value
   bid_strategy:
@@ -296,13 +323,18 @@ balancing:
     up_markup_max_dkk_mwh: 2000
   ancillary_caps:
     per_unit_mw:
-      vp_luft_vand: 6.0
-    total_mw: 14.0           # Billunds faktiske prækvalificering — gaten binder før loftet
+      vp_luft_vand: 5.52        # John 26/8: prækvalificeret eloptag
+    total_mw: 17.52          # John 26/8: 5,52 (VP) + 12 (elkedel_gl)
+  # Spor B — CM-gate rekalibreret på det RENE vindue marts–juni 2026.
+  # gate-frekvens × block_mw = facit MW-snit (aFRR 0,743 / mFRR 0,509).
+  #   aFRR: tau=75  → frekvens 26,3 % → B=2,82
+  #   mFRR: tau=300 → frekvens 11,4 % → B=4,46
   reservation_gate:
     enabled: true
-    mode: driven             # driven (Spor B) | bound (Spor A senere)
-    afrr: { cm_threshold_dkk_mw_h: 100, block_mw: 3.0 }
-    mfrr: { cm_threshold_dkk_mw_h: 421, block_mw: 5.1 }
+    mode: bound
+    afrr: { cm_threshold_dkk_mw_h: 75, block_mw: 2.82 }
+    mfrr: { cm_threshold_dkk_mw_h: 300, block_mw: 4.46 }
+
 
 # ------------------------------------------------------------------------------
 # INVESTERING (ikke aktiv i backtest)

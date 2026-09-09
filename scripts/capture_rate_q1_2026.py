@@ -11,7 +11,7 @@ pr. marked og samlet — den empiriske haircut.
 
 Kør:
     .venv/bin/python scripts/capture_rate_q1_2026.py <dispatch.nc>
-    .venv/bin/python scripts/capture_rate_q1_2026.py <dispatch.nc> --case cases/billund_sporB_q1_2026.yaml
+    .venv/bin/python scripts/capture_rate_q1_2026.py <dispatch.nc> --case cases/billund_sporB.yaml
 
 Default-casen er backtest-casen (perfekt-foresight-baseline, STATUS v3). Med
 --case <Spor B-case> sammenlignes den CM-gatede (driven) reservation mod samme
@@ -34,7 +34,7 @@ from src.data_loader import load_heat_load_params
 from src.data_loader_github import load_external_data_github
 from src.balancing import MARKETS
 
-DEFAULT_CASE = "cases/billund_backtest_jan_apr_2026.yaml"
+DEFAULT_CASE = "cases/billund_sporB.yaml"
 FACIT = "noter/billund_balance_facit_Q1_2026_tidy.csv"
 START, END = "2026-01-01", "2026-04-30"
 

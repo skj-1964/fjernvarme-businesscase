@@ -33,7 +33,7 @@ python -m venv .venv
 source .venv/bin/activate            # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
-python run_case.py cases/billund_baseline.yaml --data-source github \
+python run_case.py cases/billund_sporA.yaml --data-source github \
     --start 2025-04-01 --end 2026-03-31 --with-balancing
 ```
 
@@ -76,7 +76,7 @@ to kørsler:
 
 ```bash
 # Fælles base (gentages i begge kørsler)
-BASE="cases/billund_baseline.yaml --data-source github --start 2025-04-01 --end 2026-03-31"
+BASE="cases/billund_sporA.yaml --data-source github --start 2025-04-01 --end 2026-03-31"
 
 # Baseline — uden balancemarked
 python run_case.py $BASE
@@ -112,14 +112,14 @@ Se rapportens bilag C for fulde eksempler.
 
 `run_case.py` tager én positionsparameter (case-YAML'en) plus en række
 valgfrie flag. Alle flag har fornuftige defaults, så den korteste gyldige
-kørsel er `python run_case.py cases/billund_baseline.yaml` (dummy-data).
+kørsel er `python run_case.py cases/billund_sporA.yaml` (dummy-data).
 Kør `python run_case.py --help` for den autoritative liste.
 
 ### Positionsargument
 
 | Argument | Beskrivelse |
 | -------- | ----------- |
-| `case` | Sti til case-YAML (fx `cases/billund_baseline.yaml`). Definerer enheder, lagre, priser, afgifter og balancemarked-opsætning. |
+| `case` | Sti til case-YAML (fx `cases/billund_sporA.yaml`). Definerer enheder, lagre, priser, afgifter og balancemarked-opsætning. |
 
 ### Datakilde (vælg én — default `--dummy`)
 
@@ -304,7 +304,7 @@ brutto, manifestet rapporterer netto.
 ### Eksempel — Spor B-kørsel (Q1 2026)
 
 ```bash
-python run_case.py cases/billund_sporB_q1_2026.yaml \
+python run_case.py cases/billund_sporB.yaml \
     --data-source github --df-data-cache data/df-data --with-balancing \
     --start 2026-01-01 --end 2026-04-30 \
     --heat-csv data/billund_abvaerk_hourly.csv \
@@ -343,7 +343,7 @@ Begge mapper er gitignored og hentes/regenereres automatisk.
 
 ## Tilpas til dit eget anlæg
 
-1. Kopiér `cases/billund_baseline.yaml` til `cases/<dit_værk>_baseline.yaml`
+1. Kopiér `cases/billund_sporA.yaml` til `cases/<dit_værk>_baseline.yaml`
 2. Erstat enheder, kapaciteter, virkningsgrader og priser med dine egne
 3. Opdater `heat_load_params.nettab`-blokken med jeres typiske værksværdier
    (årligt nettab i % eller MWh, sommer- og vinter-temperaturforhold) — se
@@ -463,10 +463,10 @@ køres for sammenligning ved at tilføje `--legacy-nettab` til kommandolinjen:
 
 ```bash
 # Ny fysisk model (default)
-python run_case.py cases/billund_baseline.yaml --data-source github --year 2025
+python run_case.py cases/billund_sporA.yaml --data-source github --year 2025
 
 # Gammel slope-baseret model (samme YAML)
-python run_case.py cases/billund_baseline.yaml --data-source github --year 2025 \
+python run_case.py cases/billund_sporA.yaml --data-source github --year 2025 \
     --legacy-nettab
 ```
 

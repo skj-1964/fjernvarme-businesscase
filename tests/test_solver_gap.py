@@ -16,7 +16,7 @@ import yaml
 
 from src.config import Solver, load_case
 
-CASE = "cases/billund_sporA_v2.yaml"
+CASE = "cases/billund_sporA.yaml"
 
 
 def _case_med_solver(blok):
