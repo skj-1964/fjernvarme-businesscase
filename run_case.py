@@ -104,14 +104,20 @@ def _parse_args():
                      help="Sti til Billund-målerdata (ikke aktiveret endnu)")
 
     # External data options
-    p.add_argument("--dmi-area", default="fyn",
-                   help="DMI area-kode (default: fyn — Billund har ikke egen; fyn er klimatisk tæt)")
-    p.add_argument("--dmi-temp-shortname", default="temp_mean_past1h",
-                   help="DMI observationsvariabel for temperatur")
-    p.add_argument("--price-zone", default="DK1",
-                   help="Energinet priszone (default: DK1)")
-    p.add_argument("--eur-dkk", type=float, default=7.45,
-                   help="EUR→DKK kurs for spot-konvertering")
+    # NB: default=None på alle fire. Værdien kommer fra casens data-blok;
+    # flaget er en override. Havde de beholdt en default, ville flaget altid
+    # vinde, og YAML-blokken ville aldrig blive læst.
+    p.add_argument("--dmi-area", default=None,
+                   help="DMI area-kode. Overskriver data.dmi_area i casen. "
+                        "Uden flag bruges casens værdi.")
+    p.add_argument("--dmi-temp-shortname", default=None,
+                   help="DMI observationsvariabel for temperatur. "
+                        "Overskriver data.dmi_temp_shortname.")
+    p.add_argument("--price-zone", default=None,
+                   help="Energinet priszone. Overskriver data.price_zone.")
+    p.add_argument("--eur-dkk", type=float, default=None,
+                   help="EUR→DKK kurs for spot-konvertering. "
+                        "Overskriver data.eur_dkk.")
     p.add_argument("--cache-dir", default="data/raw",
                    help="Mappe til cachede API-svar (Parquet)")
     p.add_argument("--force-refresh", action="store_true",
@@ -172,6 +178,14 @@ def _parse_args():
 
     # Solver og output
     p.add_argument("--solver", type=str, default="highs")
+    p.add_argument("--mip-gap", type=float, default=None,
+                   help="Relativt MIP-gap. Overskriver solver.mip_rel_gap i casen. "
+                        "Standard 0.005 er til ABSOLUTTE koersler; brug 0.0002 eller "
+                        "lavere naar resultatet laeses som en DIFFERENS mellem "
+                        "scenarier, ellers kan differensen vaere mindre end "
+                        "solverens egen tolerance.")
+    p.add_argument("--mip-abs-gap", type=float, default=None,
+                   help="Absolut MIP-gap i DKK. Overskriver solver.mip_abs_gap.")
     p.add_argument("--days", type=int, default=7,
                    help="Antal dage til dispatch-plot")
     p.add_argument("--out-dir", type=str, default="output")
@@ -554,6 +568,32 @@ def main():
 
     print(f"Indlæser case: {args.case}")
     cfg = load_case(args.case, overrides=args.set_overrides)
+
+    # Solvertolerance: CLI slaar casen. Advar hoejlydt naar et loest gap
+    # kombineres med noget, der skal laeses som en differens.
+    if args.mip_gap is not None:
+        cfg.solver.mip_rel_gap = args.mip_gap
+    if args.mip_abs_gap is not None:
+        cfg.solver.mip_abs_gap = args.mip_abs_gap
+    cfg.solver.__post_init__()
+
+    # Eksterne datakilder: CLI slår casen, men kun når flaget faktisk er givet.
+    # Efter dette punkt er args.dmi_area m.fl. de effektive værdier, så resten
+    # af filen kan bruge dem uændret.
+    if args.dmi_area is not None:
+        cfg.data.dmi_area = args.dmi_area
+    if args.price_zone is not None:
+        cfg.data.price_zone = args.price_zone
+    if args.dmi_temp_shortname is not None:
+        cfg.data.dmi_temp_shortname = args.dmi_temp_shortname
+    if args.eur_dkk is not None:
+        cfg.data.eur_dkk = args.eur_dkk
+    cfg.data.__post_init__()
+
+    args.dmi_area = cfg.data.dmi_area
+    args.price_zone = cfg.data.price_zone
+    args.dmi_temp_shortname = cfg.data.dmi_temp_shortname
+    args.eur_dkk = cfg.data.eur_dkk
 
     # CLI-override af balancing-metode (har forrang over casens method).
     if args.balancing_method is not None:

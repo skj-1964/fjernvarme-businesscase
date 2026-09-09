@@ -48,6 +48,16 @@ meta:
   tax_year: 2025
 
 # ------------------------------------------------------------------------------
+# EKSTERNE DATAKILDER
+# ------------------------------------------------------------------------------
+# Klimaomraade og priszone hoerer til vaerket og staar derfor i casen, ikke som
+# et CLI-flag man skal huske. --dmi-area og --price-zone findes stadig og vinder,
+# naar de gives eksplicit.
+data:
+  dmi_area: "fyn"        # Billund har ingen egen DMI-station; fyn er klimatisk taettest
+  price_zone: "DK1"
+
+# ------------------------------------------------------------------------------
 # TIDSHORISONT — hele kalenderåret 2025
 # ------------------------------------------------------------------------------
 time:

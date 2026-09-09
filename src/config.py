@@ -399,6 +399,97 @@ class TimeHorizon:
     resolution: str                               # "1h" el. "15min"
 
 
+# DMI-stationer der findes i df-data. Udvid listen, hvis df-data faar flere.
+# Formaalet er at fange tastefejl ved config-indlaesning frem for nede i
+# loaderen, hvor fejlen bliver "fil ikke fundet".
+KENDTE_DMI_OMRAADER = ("fyn", "vestkyst", "karup")
+
+# Priszoner i df-data.
+KENDTE_PRISZONER = ("DK1", "DK2")
+
+
+@dataclass
+class DataOptions:
+    """Hvilke eksterne serier casen skal hente.
+
+    Begge felter er PAAKRAEVEDE og har med vilje ingen default. De laa
+    tidligere som CLI-defaults (`--dmi-area fyn`, `--price-zone DK1`), og en
+    default, man ikke kan se i casen, er en fejlkilde: den 9. september 2026
+    blev Andeby lagt om til et rullende aar, hvor fyn og vestkyst mangler
+    28. februar 2026. Casen fejlede paa coverage, med mindre man huskede et
+    flag, der ikke stod nogen steder i casen. Flytter man blot defaulten til
+    YAML, er faelden den samme -- den er bare rykket et lag ind.
+
+    Et vaerk skal derfor erklaere sit klimaomraade og sin priszone i sin egen
+    fil. CLI-flagene findes stadig og vinder, naar de gives eksplicit.
+    """
+    dmi_area: str
+    price_zone: str
+    dmi_temp_shortname: str = "temp_mean_past1h"
+    eur_dkk: float = 7.45
+
+    def __post_init__(self) -> None:
+        if self.dmi_area not in KENDTE_DMI_OMRAADER:
+            raise ValueError(
+                f"data.dmi_area: '{self.dmi_area}' er ikke en kendt DMI-station. "
+                f"Kendte: {', '.join(KENDTE_DMI_OMRAADER)}. "
+                f"Er stationen ny i df-data, skal den tilfoejes i "
+                f"config.KENDTE_DMI_OMRAADER."
+            )
+        if self.price_zone not in KENDTE_PRISZONER:
+            raise ValueError(
+                f"data.price_zone: '{self.price_zone}' er ikke en kendt priszone. "
+                f"Kendte: {', '.join(KENDTE_PRISZONER)}."
+            )
+        if self.eur_dkk <= 0:
+            raise ValueError(
+                f"data.eur_dkk skal vaere > 0, fik {self.eur_dkk}")
+
+
+@dataclass
+class Solver:
+    """Solvertolerance. Adskiller ABSOLUT og DIFFERENTIEL brug.
+
+    Standardvaerdierne (0,5 % / 5.000 DKK) er valgt til en absolut
+    businesscase, hvor tolerancen er lille mod usikkerheden i
+    [BEKRAEFT]-antagelserne. De er FOR LOESE til scenariedifferenser:
+    paa et objektiv omkring 5 mio er 0,5 % ca. 26.000 DKK, mens de
+    marginale trin i et tanksweep er 2.000-14.000 DKK. Differensen
+    drukner altsaa i solverens egen tolerance, og fortegnet kan vende.
+
+    Til sweeps og enhver anden differenslaesning: saet mip_rel_gap til
+    0.0002 eller lavere, eller brug --mip-gap paa kommandolinjen.
+    """
+    mip_rel_gap: float = 0.005
+    mip_abs_gap: float = 5000.0
+    time_limit: float = 600.0
+    presolve: str = "on"
+    parallel: str = "on"
+
+    def __post_init__(self) -> None:
+        if not (0.0 <= self.mip_rel_gap < 1.0):
+            raise ValueError(
+                f"solver.mip_rel_gap skal ligge i [0, 1), fik {self.mip_rel_gap}"
+            )
+        if self.mip_abs_gap < 0.0:
+            raise ValueError(
+                f"solver.mip_abs_gap skal vaere >= 0, fik {self.mip_abs_gap}"
+            )
+        if self.time_limit <= 0.0:
+            raise ValueError(
+                f"solver.time_limit skal vaere > 0, fik {self.time_limit}"
+            )
+
+    def as_options(self) -> dict:
+        return {
+            "mip_rel_gap": self.mip_rel_gap,
+            "mip_abs_gap": self.mip_abs_gap,
+            "time_limit": self.time_limit,
+            "presolve": self.presolve,
+            "parallel": self.parallel,
+        }
+
+
 @dataclass
 class CaseConfig:
     meta: dict
@@ -431,6 +522,12 @@ class CaseConfig:
     # adfærd (kontinuerlig reservation op til loftet). Når enabled binder gaten
     # før det samlede loft (total_mw), så cap-niveauet bliver ~irrelevant.
     reservation_gate: Optional["ReservationGate"] = None
+    # Solvertolerance. Se Solver-docstring: standarden er til ABSOLUTTE
+    # koersler, ikke til scenariedifferenser.
+    solver: "Solver" = field(default_factory=Solver)
+    # Eksterne datakilder. Paakraevet -- se DataOptions om hvorfor der
+    # ikke er nogen default.
+    data: "DataOptions" = None  # type: ignore[assignment]
 
 
 # ------------------------------------------------------------------------------
@@ -650,6 +747,40 @@ def load_case(
             mfrr=_market_gate("mfrr"),
         )
 
+    # Eksterne datakilder (PAAKRAEVET blok)
+    if "data" not in raw:
+        raise ValueError(
+            "casen mangler en 'data'-blok. Tilfoej fx:\n"
+            "\n"
+            "  data:\n"
+            "    dmi_area: \"fyn\"        # fyn | vestkyst | karup\n"
+            "    price_zone: \"DK1\"      # DK1 | DK2\n"
+            "\n"
+            "Vaerdierne laa tidligere som CLI-defaults. De skal staa i casen, "
+            "saa et vaerks klimaomraade og priszone foelger med filen i stedet "
+            "for at afhaenge af, om den, der koerer, huskede et flag."
+        )
+    data_raw = raw["data"] or {}
+    ukendte_data = set(data_raw) - {
+        "dmi_area", "price_zone", "dmi_temp_shortname", "eur_dkk"}
+    if ukendte_data:
+        raise ValueError(f"ukendte noegler i data-blokken: {sorted(ukendte_data)}")
+    for paakraevet in ("dmi_area", "price_zone"):
+        if paakraevet not in data_raw:
+            raise ValueError(
+                f"data.{paakraevet} mangler i casen og har med vilje ingen "
+                f"default. Se DataOptions i src/config.py."
+            )
+    data_cfg = DataOptions(**data_raw)
+
+    # Solvertolerance (valgfri blok; standard = absolut-koersel)
+    solver_raw = raw.get("solver", {}) or {}
+    ukendte = set(solver_raw) - {
+        "mip_rel_gap", "mip_abs_gap", "time_limit", "presolve", "parallel"}
+    if ukendte:
+        raise ValueError(f"ukendte noegler i solver-blokken: {sorted(ukendte)}")
+    solver_cfg = Solver(**solver_raw)
+
     return CaseConfig(
         meta=raw["meta"],
         time=time,
@@ -664,4 +795,6 @@ def load_case(
         bid_strategy=bid_strategy,
         ancillary_caps=ancillary_caps,
         reservation_gate=reservation_gate,
+        solver=solver_cfg,
+        data=data_cfg,
     )

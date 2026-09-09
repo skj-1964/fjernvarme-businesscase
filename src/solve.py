@@ -98,19 +98,16 @@ def solve_and_extract(m: lp.Model, cfg: CaseConfig, solver: str = "highs") -> xr
     # Linopy's solve(**solver_options) forventer individuelle kwargs, ikke en
     # dict. Hver kwarg videresendes til solverens setOptionValue(key, value).
     #
-    # NB om mip_rel_gap: 0.001 (0.1%) er for aggressivt for denne problemklasse.
-    # MIP-tail kan hænge længe i de sidste procenter. 0.005 (0.5%) er industri-
-    # standard for business-case-formål — på 25 mio DKK giver det ±125 kDKK
-    # præcision, hvilket er langt mindre end usikkerheden fra [TBC]-antagelserne.
+    # NB om mip_rel_gap: standarden 0.005 (0.5%) er valgt til ABSOLUTTE kørsler,
+    # hvor ±0,5 % er lille mod usikkerheden fra [BEKRÆFT]-antagelserne. Den er
+    # FOR LØS til scenariedifferenser: på 5 mio er 0,5 % ca. 26.000 DKK, mens de
+    # marginale trin i et tanksweep er 2.000–14.000 DKK. Målt 9/9-2026: ved
+    # standardgappet blev objektivet 1.262 DKK DÅRLIGERE af at tilføje en 30 MW
+    # elkedel — umuligt, og alene solverstøj. Sæt solver.mip_rel_gap i casen
+    # eller brug --mip-gap ved enhver differenslæsning.
     solver_options: dict = {}
     if is_milp and solver == "highs":
-        solver_options = {
-            "mip_rel_gap": 0.005,      # 0.5% optimality gap
-            "mip_abs_gap": 5000.0,     # 5.000 DKK absolut gap
-            "time_limit": 600.0,       # 10 min cap
-            "presolve": "on",
-            "parallel": "on",
-        }
+        solver_options = cfg.solver.as_options()
         opts_str = ", ".join(f"{k}={v}" for k, v in solver_options.items())
         print(f"  MILP-mode: solver={solver}, options: {opts_str}")
 

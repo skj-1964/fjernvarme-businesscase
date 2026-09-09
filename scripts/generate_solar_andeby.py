@@ -18,10 +18,16 @@ profilen erstattes senere med DMI-solstråling/måledata:
     Den realistiske peak (≈8 MW) ligger langt under nameplate (22 MW), fordi
     skydække/effektivitet/indfaldsvinkel reducerer den leverbare effekt.
 
+Profilen skal dække HELE kørslens periode. Dækker den ikke, stopper
+data_loader._add_production_profiles kørslen med ValueError — den nulfyldes
+ikke. Andeby kører et rullende år (juli 2025 – juni 2026), og filen dækker
+derfor 2025 og 2026.
+
 Brug:
-    python scripts/generate_solar_andeby.py            # 2025
-    python scripts/generate_solar_andeby.py --year 2026
-    python scripts/generate_solar_andeby.py --out data/synthetic_solar_andeby.csv
+    python scripts/generate_solar_andeby.py                 # 2025 + 2026
+    python scripts/generate_solar_andeby.py --year 2025
+    python scripts/generate_solar_andeby.py --year 2025 2026 2027
+    python scripts/generate_solar_andeby.py --out data/anden_fil.csv
 """
 from __future__ import annotations
 
@@ -104,13 +110,19 @@ def generate(year: int) -> pd.DataFrame:
 
 def main() -> None:
     p = argparse.ArgumentParser(description="Generér syntetisk solvarme-profil for Andeby")
-    p.add_argument("--year", type=int, default=2025,
-                   help="Kalenderår der genereres timestamps for (default: 2025)")
+    p.add_argument("--year", type=int, nargs="+", default=[2025, 2026],
+                   help="Kalenderår der genereres timestamps for. Flere år "
+                        "skrives til samme fil i kronologisk orden "
+                        "(default: 2025 2026). Hvert år skaleres for sig til "
+                        "årssummen, så et rullende år over to kalenderår også "
+                        "rammer 12 GWh — hver måned optræder netop én gang.")
     p.add_argument("--out", type=Path, default=Path("data/synthetic_solar_andeby.csv"),
                    help="Output-CSV (default: data/synthetic_solar_andeby.csv)")
     args = p.parse_args()
 
-    df = generate(args.year)
+    aar = sorted(set(args.year))
+    df = pd.concat([generate(y) for y in aar], ignore_index=True)
+    df = df.drop_duplicates("time").sort_values("time").reset_index(drop=True)
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     # ISO 8601 med 'Z' så data_loader._attach_unit_profiles parser som UTC.
@@ -118,7 +130,7 @@ def main() -> None:
     out["time"] = out["time"].dt.strftime("%Y-%m-%dT%H:%M:%SZ")
     out.to_csv(args.out, index=False, float_format="%.6f")
 
-    total_gwh = df["power_mw"].sum() / 1000.0
+    total_gwh = df["power_mw"].sum() / 1000.0 / len(aar)
     peak_mw = df["power_mw"].max()
     n_daylight = int((df["power_mw"] > 0).sum())
     print(f"Skrev {len(df)} rækker → {args.out}")

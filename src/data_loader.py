@@ -973,8 +973,10 @@ def _attach_unit_profiles(cfg: CaseConfig, ds: xr.Dataset) -> xr.Dataset:
     'profile_<unit>' i datasættet. model.build_model bruger disse til at sætte
     et tidsvarierende produktionsloft.
 
-    Gotcha: profilen reindekseres på EKSAKT tidsstempel. CSV'en skal derfor
-    dække kørslens periode/år — ellers bliver loftet 0 (fill) for de timer.
+    Profilen reindekseres på EKSAKT tidsstempel. Dækker CSV'en ikke hele
+    kørslens periode, rejses ValueError — den nulfyldes IKKE. Tidligere blev
+    manglende timer stille sat til 0, hvilket gav et produktionsloft på nul
+    uden noget signal.
     """
     target_idx = pd.DatetimeIndex(ds.time.values)
     for unit_name, unit in cfg.units.items():
@@ -985,10 +987,29 @@ def _attach_unit_profiles(cfg: CaseConfig, ds: xr.Dataset) -> xr.Dataset:
             path = Path.cwd() / path
         df = pd.read_csv(path, parse_dates=["time"])
         df["time"] = pd.to_datetime(df["time"], utc=True).dt.tz_convert(None)
-        s = (
-            df.set_index("time").sort_index().iloc[:, 0]
-              .reindex(target_idx, fill_value=0.0)
-        )
+        serie = df.set_index("time").sort_index().iloc[:, 0]
+
+        # Profilen reindekseres paa EKSAKT tidsstempel. Daekker CSV'en ikke hele
+        # koerslens periode, blev loftet tidligere 0 for de manglende timer --
+        # tavst. En solvarmeprofil for 2025 koert over juli 2025 - juni 2026 gav
+        # altsaa nul sol i hele foraaret uden et signal. Samme princip som
+        # assert_coverage: data fyldes ikke, koerslen stoppes.
+        mangler = target_idx.difference(pd.DatetimeIndex(serie.index))
+        if len(mangler):
+            raise ValueError(
+                f"{unit_name}: production_profile daekker ikke hele perioden.\n"
+                f"  Profil:  {path}\n"
+                f"  Oensket: {target_idx[0]} -> {target_idx[-1]} "
+                f"({len(target_idx)} timer)\n"
+                f"  Har:     {serie.index[0]} -> {serie.index[-1]} "
+                f"({len(serie)} timer)\n"
+                f"  Mangler: {len(mangler)}/{len(target_idx)} timer, "
+                f"foerste {mangler[0]}, sidste {mangler[-1]}\n"
+                f"  Profilen er IKKE nulfyldt - koerslen er stoppet. Udvid "
+                f"CSV'en eller indskraenk cfg.time."
+            )
+
+        s = serie.reindex(target_idx)
         ds = ds.assign({f"profile_{unit_name}": ("time", s.values)})
     return ds
 

@@ -1,5 +1,5 @@
 # ==============================================================================
-# ANDEBY VARMEVÆRK — fiktivt referenceværk, helt kalenderår 2025
+# ANDEBY VARMEVÆRK — fiktivt referenceværk, rullende år juli 2025 – juni 2026
 # ==============================================================================
 # Andeby er et FIKTIVT referenceværk til regulerings-analyser (afgifter,
 # tariffer m.m.). Det er afledt af cases/billund_2025.yaml (samme maskine:
@@ -15,7 +15,10 @@
 # senere med DMI-solstråling/måledata.
 #
 # KØRES MED (regulerings-brug = uden balancering, så varmeprisen er ren):
-#   python run_case.py cases/andeby.yaml --data-source github
+#   python run_case.py cases/andeby.yaml --data-source github --dmi-area karup
+#
+# --dmi-area karup er IKKE valgfrit i dette vindue: fyn og vestkyst mangler
+# 28. februar 2026 og stopper på coverage.
 #
 # Forventning: MILP (halmkedlen er en UC-enhed med min-uptime/p_min),
 # halmkedel som grundlast (~55 % af varmeproduktionen), solvarme-andel
@@ -37,15 +40,77 @@ meta:
   timezone_internal: "UTC"
   timezone_reporting: "Europe/Copenhagen"
   discount_rate_real: 0.035
+  # [BEKRÆFT] Vinduet spænder nu over to afgiftsår. Feltet er ren metadata —
+  # det læses ikke af koden — men satserne i electricity-blokken nedenfor er
+  # 2025-satser. Skal 2026-satser bruges for anden halvdel, kræver det en
+  # tidsvarierende afgift, som modellen ikke har. Vurderet uvæsentligt for en
+  # fiktiv case; skal afklares før casen bruges til en rigtig afgiftsanalyse.
   tax_year: 2025
 
 # ------------------------------------------------------------------------------
-# TIDSHORISONT — hele kalenderåret 2025
+# EKSTERNE DATAKILDER
+# ------------------------------------------------------------------------------
+# Klimaomraade og priszone hoerer til vaerket og staar derfor i casen, ikke som
+# et CLI-flag man skal huske. --dmi-area og --price-zone findes stadig og vinder,
+# naar de gives eksplicit.
+data:
+  dmi_area: "karup"        # fyn og vestkyst mangler 28. februar 2026 og fejler paa coverage
+  price_zone: "DK1"
+
+# ------------------------------------------------------------------------------
+# TIDSHORISONT — rullende år, 1. juli 2025 → 30. juni 2026
+# ------------------------------------------------------------------------------
+# Hvorfor ikke et kalenderår:
+#
+#   1) DATA. df-datas `imbalance` og `mfrr_act` begynder først 4. marts 2025;
+#      der findes ingen 2024-filer. Kalenderåret 2025 kan derfor ikke køres
+#      med --with-balancing — loaderen stopper med CoverageError på de første
+#      ni uger. Det rullende år undgår hullet helt og slutter før afrr-hullet
+#      4. september 2026. Dækning: 100 % på alle seks datasæt.
+#
+#   2) VINTEREN ER SAMLET. Et kalenderår deler vinteren over begge ender, og
+#      cycle_binding: true binder så tankens slutning i december til dens
+#      start i januar — to forskellige vintre. Juli–juni lægger begge
+#      endepunkter i sommeren, hvor tanken betyder mindst.
+#
+#   3) HVER MÅNED ÉN GANG. Tarifsæsonerne (måned-baserede) og solprofilens
+#      årssum på 12 GWh falder ud rigtigt uden justering.
+#
+# BEMÆRK --dmi-area: brug `karup`. fyn og vestkyst mangler 28. februar 2026
+# (ca. 30 timer) og fejler på coverage. karup har nul huller i vinduet.
 # ------------------------------------------------------------------------------
 time:
-  start: "2025-01-01T00:00:00Z"
-  end:   "2025-12-31T23:00:00Z"
+  start: "2025-07-01T00:00:00Z"
+  end:   "2026-06-30T23:00:00Z"
   resolution: "1h"
+
+# ------------------------------------------------------------------------------
+# SOLVERTOLERANCE
+# ------------------------------------------------------------------------------
+# Andeby er den case, deltagerne skal SAMMENLIGNE scenarier på. Standarden
+# 0,005 er valgt til absolutte kørsler og er for løs til det: målt på Spor A
+# 9. september 2026 vendte fortegnet ved standardgappet — objektivet blev
+# 1.262 DKK dårligere af at tilføje en 30 MW elkedel, hvilket er umuligt.
+#
+# Målt på DENNE case, hele det rullende år, 9. september 2026:
+#
+#   gap      tid      objektiv
+#   0,50 %    64 s    16.472.991     ← 12.899 DKK for højt
+#   0,10 %   415 s    16.460.092
+#   0,02 %   747 s    16.460.092     ← identisk; de 332 ekstra sekunder
+#                                      købte ingenting
+#
+# 0,001 er derfor valgt: samme svar som 0,0002 på 56 % af tiden. Den bedre
+# løsning findes først ved 408 s, så der er ingen genvej — det er ikke kun
+# bevisførelsen, der tager tid.
+#
+# TIL LIVE-DEMO: syv minutter er for lang tid foran en sal. Kør casen på
+# forhånd og vis resultatet, eller demonstrér på et kortere vindue. Det er
+# samme opdeling som varmeflex.dk's fase 1 (forudberegnet) mod fase 2 (live).
+solver:
+  mip_rel_gap: 0.001
+  mip_abs_gap: 1000.0
+  time_limit: 3600.0
 
 # ------------------------------------------------------------------------------
 # VARMELAST-SYNTESE — skaleret fra Billund med faktor 0,784 (~127,5 → ~100 GWh)
