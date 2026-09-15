@@ -966,6 +966,12 @@ def add_balancing_reserves(
                 available_cap=avail, window_closed=lukket,
             )
 
+    avail = getattr(cfg, "availability", None)
+    if avail is not None and avail.enabled:
+        _add_availability_caps(
+            m, avail, {"aFRR": afrr_vars, "mFRR": mfrr_vars}, data.time.values,
+        )
+
     # Totale udtryk (summer over aktive markeder)
     total_capacity = 0
     total_activation = 0
@@ -997,6 +1003,58 @@ def add_balancing_reserves(
         "r_up_el_vars": afrr_vars,
         "eligible_units": afrr_res["eligible_names"] if afrr_res else [],
     }
+
+
+
+def _add_availability_caps(
+    m: lp.Model,
+    avail,
+    market_vars: dict,
+    time_coord: np.ndarray,
+) -> None:
+    """Månedligt tilgængelighedsloft på reservationen pr. marked.
+
+    hourly: Σ_i r_m[i,t] ≤ loft(måned(t))              ∀t
+    energy: Σ_{t∈måned} Σ_i r_m[i,t]·Δt ≤ loft·timer    ∀måned
+
+    Fejler højlydt, hvis en måned i vinduet mangler et loft.
+    """
+    tider = pd.DatetimeIndex(time_coord)
+    maaneder = tider.strftime("%Y-%m")
+    dt_h = (
+        float((tider[1] - tider[0]) / pd.Timedelta(hours=1))
+        if len(tider) > 1 else 1.0
+    )
+    for label, key in (("aFRR", "afrr"), ("mFRR", "mfrr")):
+        mcfg = getattr(avail, key)
+        vars_ = market_vars.get(label) or {}
+        if mcfg is None or not vars_:
+            continue
+        mangler = sorted(set(maaneder) - set(mcfg.mw_by_month))
+        if mangler:
+            raise ValueError(
+                f"balancing.availability.{key}: intet loft for {mangler}. "
+                f"Loftet er kalibreret på bestemte måneder og må ikke falde "
+                f"tavst bort — tilføj månederne eller slå blokken fra."
+            )
+        total = None
+        for v in vars_.values():
+            total = v if total is None else total + v
+        loft = xr.DataArray(
+            np.array([mcfg.mw_by_month[k] for k in maaneder], dtype=float),
+            coords={"time": time_coord}, dims=["time"],
+        )
+        if avail.mode == "hourly":
+            m.add_constraints(total <= loft, name=f"availability_{key}")
+        else:
+            gruppe = xr.DataArray(np.asarray(maaneder), coords={"time": time_coord},
+                                  dims=["time"], name="maaned")
+            venstre = (total * dt_h).groupby(gruppe).sum()
+            hoejre = (loft * dt_h).groupby(gruppe).sum()
+            m.add_constraints(venstre <= hoejre, name=f"availability_{key}")
+        snit = float(loft.mean())
+        print(f"  {label}: tilgængelighedsloft ({avail.mode}), "
+              f"tidsvægtet snit {snit:.2f} MW over {len(set(maaneder))} måneder")
 
 
 # ---------------------------------------------------------------------------

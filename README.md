@@ -277,6 +277,32 @@ balancing:
     up_markup_max_dkk_mwh: 2000
 ```
 
+### Aktiveret andel (`balancing.activation`)
+
+`clear`-indikatoren i `av(t)` siger, at buddet ligger i merit — ikke at det
+bliver aktiveret. Uden en gate gav den 4–5 gange for meget aktiveret energi
+målt mod Billunds afregning. Blokken styrer, hvor stor en andel `f(τ)` af den
+reserverede MW der regnes aktiveret i et kvarter:
+
+```yaml
+balancing:
+  activation:
+    afrr: {model: system_share, k: 1.0}
+    mfrr: {model: system_share, k: 1.0}
+```
+
+| model | f(τ) |
+|---|---|
+| `clear` (default) | `1[p ≥ bud]` — den oprindelige antagelse |
+| `system_share` | `1[p ≥ bud] · min(1, k·α(τ))`, α = systemets aktiverede volumen / indkøbt kapacitet |
+| `ramp` | `min(1, max(0, (p − bud) / ramp_dkk_mwh))` |
+
+Uden blokken er alt som før (ankeret er urørt). `f(τ)` indgår både i
+aktiveringsindtægten og i den forventede varmereduktion. Mod Billund rammer
+`system_share` med k=1 aFRR i H2 2025 (7,8 % af reserveret energi mod 8,2 %)
+og mFRR i marts–juni 2026 (14,5 % mod 14,2 %); aFRR i marts–juni 2026 kræver
+k≈1,6. Kræver `method: activation_value` og `--data-source github`.
+
 ### CM-pris-gate på reservationen (Spor B / Spor A)
 
 Den empiriske observation (Q1 2026) er at Billund **ikke** reserverer
@@ -310,15 +336,39 @@ aktiveringsindtægten i **netto** (ren aktiveringsbetaling) og
 **forbrugsmodregning** (sparet spot + tarif + afgift); objektivet bruger
 brutto, manifestet rapporterer netto.
 
-### Eksempel — Spor B-kørsel (Q1 2026)
+### Tilgængelighedsloft og foresight (`balancing.availability`, `activation.foresight`)
+
+Uden gate reserverer modellen al den effekt, footroom tillader — for Billund
+3–8 gange det realiserede. To felter beskriver værkets faktiske adfærd:
+
+```yaml
+balancing:
+  activation:
+    foresight: profile        # realized (default) | profile
+  availability:
+    enabled: true
+    mode: energy              # hourly | energy
+    afrr:
+      mw_by_month: {"2026-03": 1.155, "2026-04": 1.186}
+```
+
+`foresight: profile` lader optimeringen se aktiveringsværdiens gennemsnit pr.
+måned og time på døgnet i stedet for den realiserede — kapacitetsbuddet
+afgives dagen før. Manifestets aktiveringstal er da forventede.
+`availability` er et loft på den samlede reservation pr. marked: `hourly` i
+hver time, `energy` på månedens MWh. Måneder i vinduet uden loft stopper
+kørslen. Loftet beskriver én periode for ét værk og er ikke overførbart.
+
+### Eksempel — Spor B-kørsel (marts–juni 2026)
 
 ```bash
 python run_case.py cases/billund_sporB.yaml \
-    --data-source github --df-data-cache data/df-data --with-balancing \
-    --start 2026-01-01 --end 2026-04-30 \
-    --heat-csv data/billund_abvaerk_hourly.csv \
-    --balancing-method activation_value --out-dir output/sporB_q1_2026
+    --data-source github --with-balancing \
+    --heat-csv data/billund_abvaerk_hourly.csv --out-dir output/sporB
 ```
+
+Vinduet og kalibreringen står i casen. Et andet vindue kræver nye
+månedslofter — se kommentaren i `billund_sporB.yaml`.
 
 ---
 

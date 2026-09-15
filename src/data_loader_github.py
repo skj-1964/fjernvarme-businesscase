@@ -431,38 +431,6 @@ def fetch_balance_prices_github(
         k: xr.DataArray(v, dims=["time"]) for k, v in hourly.items()
     })
 
-    # ----- av(t): kovarians-korrekt aktiveringsværdi (activation_value-metode) ---
-    # Beregnes på 15-min df_imb FØR time-aggregering, så scarcity-spikene bevares.
-    av_ds = None
-    if av_params is not None:
-        from .activation_value import compute_activation_value
-        spot15 = av_params["spot_15min"]
-        el_flat = float(av_params["el_cost_flat"])
-        markup_up = float(av_params["markup_up"])
-        av_vars = {}
-        for price_col, av_key, pay_key, clear_key in (
-            ("aFRRVWAUpDKK", "afrr_activation_value_up",
-             "afrr_activation_payment_up", "afrr_clear_fraction_up"),
-            ("mFRRMarginalPriceUpDKK", "mfrr_activation_value_up",
-             "mfrr_activation_payment_up", "mfrr_clear_fraction_up"),
-        ):
-            p15 = df_imb[price_col].astype(float).fillna(0.0)
-            res = compute_activation_value(
-                p15, spot15, markup=markup_up, el_cost_flat=el_flat,
-                dt_h=0.25, direction="up",
-            )
-            av_vars[av_key] = xr.DataArray(res.av, dims=["time"])
-            # Netto aktiveringsbetaling (kun p_act) — diagnostik/rapportering.
-            av_vars[pay_key] = xr.DataArray(res.av_payment, dims=["time"])
-            av_vars[clear_key] = xr.DataArray(res.clear_fraction, dims=["time"])
-        av_ds = xr.Dataset(av_vars)
-        print(
-            f"  av(t) beregnet (markup={markup_up:.0f}, el_flat={el_flat:.0f}): "
-            f"aFRR av-gns={float(av_ds['afrr_activation_value_up'].mean()):.1f}, "
-            f"mFRR av-gns={float(av_ds['mfrr_activation_value_up'].mean()):.1f} "
-            f"DKK/MW/time"
-        )
-
     # ----- mFRR kapacitet (time-opløst) -----
     df_mcap = _read_dataset(repo_root, "mfrr_cap", zone, idx, time_col="TimeUTC")
     if df_mcap.empty:
@@ -488,6 +456,70 @@ def fetch_balance_prices_github(
     mact_ds = xr.Dataset({
         "mfrr_act_up_mw": xr.DataArray(mfrr_up_mw_hourly, dims=["time"]),
     })
+
+    # ----- av(t): kovarians-korrekt aktiveringsværdi (activation_value-metode) ---
+    # Beregnes på 15-min df_imb FØR time-aggregering, så scarcity-spikene bevares.
+    # Står efter mFRR-indlæsningen, fordi 'system_share' bruger α(τ) på
+    # kvartersniveau: aktiveret volumen / indkøbt kapacitet (time → ffill).
+    av_ds = None
+    if av_params is not None:
+        from .activation_value import compute_activation_value
+        spot15 = av_params["spot_15min"]
+        el_flat = float(av_params["el_cost_flat"])
+        markup_up = float(av_params["markup_up"])
+        act_cfg = av_params.get("activation")
+
+        def _andel(vol15: pd.Series, cap_h: pd.Series) -> pd.Series:
+            cap = cap_h.astype(float)
+            cap = cap[~cap.index.duplicated(keep="first")].sort_index()
+            cap = cap.reindex(vol15.index, method="ffill")
+            v = vol15.astype(float).fillna(0.0).clip(lower=0.0)
+            return (v / cap.where(cap > 0)).fillna(0.0).clip(0.0, 1.0)
+
+        andel_afrr = _andel(df_imb["aFRRUpMW"], df_cap["UpProcuredMW"])
+        andel_mfrr = _andel(df_mact["TotalmFRRUpMW"], df_mcap["UpProcuredMW"])
+
+        av_vars = {}
+        for mk, price_col, andel in (
+            ("afrr", "aFRRVWAUpDKK", andel_afrr),
+            ("mfrr", "mFRRMarginalPriceUpDKK", andel_mfrr),
+        ):
+            mcfg = getattr(act_cfg, mk) if act_cfg is not None else None
+            kw = {}
+            if mcfg is not None and mcfg.model != "clear":
+                kw = dict(model=mcfg.model, system_share=andel, k=mcfg.k,
+                          ramp_dkk_mwh=mcfg.ramp_dkk_mwh)
+            p15 = df_imb[price_col].astype(float).fillna(0.0)
+            res = compute_activation_value(
+                p15, spot15, markup=markup_up, el_cost_flat=el_flat,
+                dt_h=0.25, direction="up", **kw,
+            )
+            av_vars[f"{mk}_activation_value_up"] = xr.DataArray(res.av, dims=["time"])
+            # Netto aktiveringsbetaling (kun p_act) — diagnostik/rapportering.
+            av_vars[f"{mk}_activation_payment_up"] = xr.DataArray(
+                res.av_payment, dims=["time"])
+            av_vars[f"{mk}_clear_fraction_up"] = xr.DataArray(
+                res.clear_fraction, dims=["time"])
+            beskr = "clear" if not kw else (
+                f"{mcfg.model}(k={mcfg.k:g})" if mcfg.model == "system_share"
+                else f"ramp({mcfg.ramp_dkk_mwh:g})")
+            print(f"  {mk}: aktiveringsmodel = {beskr}")
+        av_ds = xr.Dataset(av_vars)
+        if act_cfg is not None and act_cfg.foresight == "profile":
+            # Ingen foresight på aktiveringen: hver time får gennemsnittet for
+            # samme måned og time på døgnet (kapacitetsprisen er urørt).
+            tider = pd.DatetimeIndex(av_ds.time.values)
+            noegle = tider.strftime("%Y-%m") + "_" + tider.strftime("%H")
+            for v in list(av_ds.data_vars):
+                ser = pd.Series(av_ds[v].values, index=tider)
+                av_ds[v] = ("time", ser.groupby(noegle).transform("mean").values)
+            print("  aktivering: foresight = profile (måned × time på døgnet)")
+        print(
+            f"  av(t) beregnet (markup={markup_up:.0f}, el_flat={el_flat:.0f}): "
+            f"aFRR av-gns={float(av_ds['afrr_activation_value_up'].mean()):.1f}, "
+            f"mFRR av-gns={float(av_ds['mfrr_activation_value_up'].mean()):.1f} "
+            f"DKK/MW/time"
+        )
 
     datasets = [cap_ds, imb_ds, mcap_ds, mact_ds]
     if av_ds is not None:
@@ -619,6 +651,7 @@ def load_external_data_github(
                 "markup_up": bs.up_markup_dkk_mwh,
                 "el_cost_flat": (cfg.electricity.tariff_consumption_flat
                                  + cfg.electricity.electricity_tax),
+                "activation": getattr(cfg, "activation", None),
             }
         bal = fetch_balance_prices_github(
             idx,

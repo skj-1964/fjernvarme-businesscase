@@ -14,6 +14,7 @@ from src.tariff import ConsumptionTariff, parse_consumption_tariff
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Literal
+import re
 import numpy as np
 import yaml
 
@@ -167,6 +168,124 @@ class ReservationGateMarket:
                 "tærskel) eller opportunity_cost (beregnet tærskel af "
                 "brændselsstakken)"
             )
+
+
+@dataclass
+class ActivationMarket:
+    """Hvor stor en andel af den reserverede MW der aktiveres i et kvarter τ.
+
+    Session 27 viste, at 'clear' — hele reservationen aktiveres, når prisen
+    clearer buddet — overvurderer aktiveret energi 4-5 gange uden gate.
+    At buddet ligger i merit, er ikke det samme som at blive aktiveret.
+
+    model:
+      'clear'         f(τ) = 1[p ≥ bud]                       (nuværende, default)
+      'system_share'  f(τ) = 1[p ≥ bud] · min(1, k·α(τ))
+                      α(τ) = systemets aktiverede volumen / indkøbt kapacitet
+                      (aFRR: aFRRUpMW / UpProcuredMW,
+                       mFRR: TotalmFRRUpMW / UpProcuredMW). k skalerer for, at
+                      et bud på spot + tillæg ligger billigere end gennemsnittet
+                      i merit-ordenen.
+      'ramp'          f(τ) = min(1, max(0, (p − bud) / ramp_dkk_mwh))
+                      Kvartersprisen er et gennemsnit; ligger den lige over
+                      buddet, har buddet kun været i merit en del af kvarteret.
+    """
+    model: str = "clear"
+    k: float = 1.0
+    ramp_dkk_mwh: Optional[float] = None
+
+    _MODELLER = ("clear", "system_share", "ramp")
+
+    def __post_init__(self):
+        if self.model not in self._MODELLER:
+            raise ValueError(
+                f"balancing.activation.*.model skal være en af {self._MODELLER}, "
+                f"fik {self.model!r}"
+            )
+        self.k = float(self.k)
+        if self.k <= 0:
+            raise ValueError(f"balancing.activation.*.k skal være > 0, fik {self.k}")
+        if self.model == "ramp":
+            if self.ramp_dkk_mwh is None or float(self.ramp_dkk_mwh) <= 0:
+                raise ValueError(
+                    "balancing.activation.*.model='ramp' kræver ramp_dkk_mwh > 0"
+                )
+            self.ramp_dkk_mwh = float(self.ramp_dkk_mwh)
+
+
+@dataclass
+class Activation:
+    """Aktiveringsmodel pr. marked. Uden blok: 'clear' på begge (ankeret).
+
+    foresight:
+      'realized' (default)  optimeringen ser den realiserede aktiveringsværdi
+                            pr. time — perfekt foresight på aktiveringen.
+      'profile'             optimeringen ser gennemsnittet pr. måned og time
+                            på døgnet. Kapacitetsbuddet afgives dagen før,
+                            uden kendskab til aktiveringen. De rapporterede
+                            aktiveringstal (manifest, sammendrag) er da også
+                            FORVENTEDE; den realiserede værdi af den valgte
+                            reservation regnes ex post.
+    """
+    afrr: ActivationMarket = field(default_factory=ActivationMarket)
+    mfrr: ActivationMarket = field(default_factory=ActivationMarket)
+    foresight: str = "realized"
+
+    def __post_init__(self):
+        if self.foresight not in ("realized", "profile"):
+            raise ValueError(
+                "balancing.activation.foresight skal være 'realized' eller "
+                f"'profile', fik {self.foresight!r}")
+
+
+@dataclass
+class AvailabilityMarket:
+    """Månedligt reservationsloft for ét marked [MW el, summen af enheder].
+
+    Nøgler er "ÅÅÅÅ-MM". Måneder i kørselsvinduet, der mangler, er en fejl —
+    et loft kalibreret på én periode må ikke tavst falde bort i en anden.
+    """
+    mw_by_month: dict = field(default_factory=dict)
+
+    def __post_init__(self):
+        rent = {}
+        for k, v in (self.mw_by_month or {}).items():
+            k = str(k)
+            if not re.fullmatch(r"\d{4}-\d{2}", k):
+                raise ValueError(
+                    f"balancing.availability: månedsnøgle skal være 'ÅÅÅÅ-MM', fik {k!r}")
+            v = float(v)
+            if v < 0:
+                raise ValueError(f"balancing.availability[{k}] skal være ≥ 0, fik {v}")
+            rent[k] = v
+        self.mw_by_month = rent
+
+
+@dataclass
+class Availability:
+    """Tilgængelighedsloft på reservationen (session 28, deskriptivt).
+
+    Uden gate reserverer modellen al den effekt, footroom tillader. Billund
+    reserverede i marts–juni 2026 en fjerdedel af det, bredt fordelt i tid.
+    Loftet beskriver Billunds adfærd i den periode, det er kalibreret på —
+    det er ikke en egenskab ved markedet og kan ikke overføres til andre
+    værker eller perioder uden ny kalibrering.
+
+    mode:
+      'hourly'  Σ_i r_m[i,t] ≤ loft(måned(t))                  hver time
+      'energy'  Σ_{t∈måned} Σ_i r_m[i,t]·Δt ≤ loft · timer       pr. måned
+                (modellen vælger selv timerne — perfekt foresight)
+    """
+    enabled: bool = False
+    mode: str = "hourly"
+    afrr: Optional[AvailabilityMarket] = None
+    mfrr: Optional[AvailabilityMarket] = None
+
+    def __post_init__(self):
+        if self.mode not in ("hourly", "energy"):
+            raise ValueError(
+                f"balancing.availability.mode skal være 'hourly' eller 'energy', "
+                f"fik {self.mode!r}")
 
 
 @dataclass
@@ -522,6 +641,10 @@ class CaseConfig:
     # adfærd (kontinuerlig reservation op til loftet). Når enabled binder gaten
     # før det samlede loft (total_mw), så cap-niveauet bliver ~irrelevant.
     reservation_gate: Optional["ReservationGate"] = None
+    # Aktiveringsmodel pr. marked (session 28). Default 'clear' = uændret.
+    activation: "Activation" = field(default_factory=Activation)
+    # Månedligt tilgængelighedsloft på reservationen (session 28). None = intet.
+    availability: Optional["Availability"] = None
     # Solvertolerance. Se Solver-docstring: standarden er til ABSOLUTTE
     # koersler, ikke til scenariedifferenser.
     solver: "Solver" = field(default_factory=Solver)
@@ -747,6 +870,53 @@ def load_case(
             mfrr=_market_gate("mfrr"),
         )
 
+    # Aktiveringsmodel (valgfri blok; default clear = uændret anker)
+    act_raw = bal_raw.get("activation") or {}
+    ukendte_act = set(act_raw) - {"afrr", "mfrr", "foresight"}
+    if ukendte_act:
+        raise ValueError(
+            f"ukendte noegler i balancing.activation: {sorted(ukendte_act)}")
+    act_kw = {}
+    for mk in ("afrr", "mfrr"):
+        mk_raw = act_raw.get(mk) or {}
+        ukendte_mk = set(mk_raw) - {"model", "k", "ramp_dkk_mwh"}
+        if ukendte_mk:
+            raise ValueError(
+                f"ukendte noegler i balancing.activation.{mk}: {sorted(ukendte_mk)}")
+        act_kw[mk] = ActivationMarket(**mk_raw)
+    activation = Activation(**act_kw,
+                            foresight=act_raw.get("foresight", "realized"))
+    if (balancing_method != "activation_value"
+            and (any(a.model != "clear" for a in act_kw.values())
+                 or activation.foresight != "realized")):
+        raise ValueError(
+            "balancing.activation kræver balancing.method='activation_value'")
+
+    # Tilgængelighedsloft (valgfri blok)
+    av_raw = bal_raw.get("availability")
+    availability = None
+    if av_raw:
+        ukendte_av = set(av_raw) - {"enabled", "mode", "afrr", "mfrr"}
+        if ukendte_av:
+            raise ValueError(
+                f"ukendte noegler i balancing.availability: {sorted(ukendte_av)}")
+        def _av_mk(key):
+            mk = av_raw.get(key)
+            if not mk:
+                return None
+            ukendte_mk = set(mk) - {"mw_by_month"}
+            if ukendte_mk:
+                raise ValueError(
+                    f"ukendte noegler i balancing.availability.{key}: "
+                    f"{sorted(ukendte_mk)}")
+            return AvailabilityMarket(mw_by_month=mk.get("mw_by_month") or {})
+        availability = Availability(
+            enabled=bool(av_raw.get("enabled", False)),
+            mode=av_raw.get("mode", "hourly"),
+            afrr=_av_mk("afrr"),
+            mfrr=_av_mk("mfrr"),
+        )
+
     # Eksterne datakilder (PAAKRAEVET blok)
     if "data" not in raw:
         raise ValueError(
@@ -795,6 +965,8 @@ def load_case(
         bid_strategy=bid_strategy,
         ancillary_caps=ancillary_caps,
         reservation_gate=reservation_gate,
+        activation=activation,
+        availability=availability,
         solver=solver_cfg,
         data=data_cfg,
     )

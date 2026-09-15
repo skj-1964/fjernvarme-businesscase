@@ -325,16 +325,59 @@ balancing:
     per_unit_mw:
       vp_luft_vand: 5.52        # John 26/8: prækvalificeret eloptag
     total_mw: 17.52          # John 26/8: 5,52 (VP) + 12 (elkedel_gl)
-  # Spor B — CM-gate rekalibreret på det RENE vindue marts–juni 2026.
+  # ---------------------------------------------------------------------
+  # SPOR B — BESKRIVENDE KALIBRERING, marts–juni 2026 (session 28)
+  # ---------------------------------------------------------------------
+  # Markedet skiftede hen over vinteren 25/26 (aFRR-domineret 2025,
+  # mFRR-tungt 2026, batterier ind). Kalibreringen gælder derfor KUN det
+  # vindue, den er lavet på, og skal gentestes til vinter 26/27.
+  #
+  # Tre dele, alle nødvendige (testet enkeltvis, STATUS_session28 §7):
+  #  1. foresight: profile — reservationen besluttes på forventet
+  #     aktiveringsværdi (måned × time på døgnet), ikke den realiserede.
+  #     Kapacitetsbuddet afgives dagen før. Uden den vælger modellen præcis
+  #     de timer, hvor aktiveringen senere blev høj.
+  #  2. aktivering pr. marked:
+  #     aFRR: system_share k=4 — kun en del af buddet aktiveres, selv når
+  #           kvartersprisen ligger over. k er kalibreret; den absorberer, at
+  #           Billunds timer aktiveres mere end systemgennemsnittet.
+  #     mFRR: clear — marginalprisafregning: ligger buddet under prisen,
+  #           aktiveres det. Ukalibreret.
+  #  3. availability: energy — Billunds reserverede MWh pr. måned (facit,
+  #     MW-snit over vinduets timer) som loft. Modellen vælger timerne.
+  #     Uden loftet reserverer modellen 3–8 gange Billunds volumen.
+  #
+  # Mod facit (FORB Op), 2.3.–23.6.2026: se STATUS_session28 §7.
+  #
+  # BEMÆRK: manifest og sammendrag viser med foresight: profile FORVENTEDE
+  # aktiveringstal. Den realiserede værdi af den valgte reservation regnes
+  # ex post (diag_session28: compare.py).
+  #
+  # Den gamle Spor B (CM-gate driven + clear, samme vindue) genskabes med:
+  #   --set balancing.reservation_gate.enabled=true \
+  #   --set balancing.availability.enabled=false \
+  #   --set balancing.activation.foresight=realized \
+  #   --set balancing.activation.afrr.model=clear
+  activation:
+    foresight: profile
+    afrr: {model: system_share, k: 4.0}
+    mfrr: {model: clear}
+  availability:
+    enabled: true
+    mode: energy
+    afrr:
+      mw_by_month: {"2026-03": 1.155, "2026-04": 1.186, "2026-05": 0.411, "2026-06": 0.104}
+    mfrr:
+      mw_by_month: {"2026-03": 1.034, "2026-04": 0.753, "2026-05": 0.123, "2026-06": 0.073}
+  # Tidligere Spor B: CM-gate kalibreret på samme vindue (session 23–25).
   # gate-frekvens × block_mw = facit MW-snit (aFRR 0,743 / mFRR 0,509).
   #   aFRR: tau=75  → frekvens 26,3 % → B=2,82
   #   mFRR: tau=300 → frekvens 11,4 % → B=4,46
   reservation_gate:
-    enabled: true
+    enabled: false
     mode: driven
     afrr: { cm_threshold_dkk_mw_h: 75, block_mw: 2.82 }
     mfrr: { cm_threshold_dkk_mw_h: 300, block_mw: 4.46 }
-
 
 # ------------------------------------------------------------------------------
 # INVESTERING (ikke aktiv i backtest)

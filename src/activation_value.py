@@ -62,6 +62,10 @@ def compute_activation_value(
     el_cost_flat: float,
     dt_h: float = 0.25,
     direction: str = "up",
+    model: str = "clear",
+    system_share: pd.Series | None = None,
+    k: float = 1.0,
+    ramp_dkk_mwh: float | None = None,
 ) -> ActivationValue:
     """Beregn kovarians-korrekt aktiveringsværdi fra sub-time-serier.
 
@@ -75,6 +79,13 @@ def compute_activation_value(
         dt_h:         sub-interval-længde i timer (0.25 for 15-min).
         direction:    "up" (clearer når p_act ≥ spot+markup) eller
                       "down" (clearer når p_act ≤ spot−markup).
+        model:        aktiveret andel f(τ) af reserveret MW (se
+                      config.ActivationMarket): 'clear' (default, uændret),
+                      'system_share' eller 'ramp'.
+        system_share: α(τ) ∈ [0,1], systemets aktiverede volumen / indkøbt
+                      kapacitet. Kræves af 'system_share'.
+        k:            skalering af α ('system_share').
+        ramp_dkk_mwh: rampebredde ('ramp').
 
     Returns:
         ActivationValue med time-opløste av og clear_fraction.
@@ -94,13 +105,31 @@ def compute_activation_value(
     clears = (p >= bid) if direction == "up" else (p <= bid)
     clears = clears.astype(float)
 
+    # Aktiveret andel f(τ). 'clear' er den oprindelige indikator — uændret.
+    if model == "clear":
+        pass
+    elif model == "system_share":
+        if system_share is None:
+            raise ValueError("model='system_share' kræver system_share-serien")
+        a = system_share.astype(float).sort_index()
+        a = a[~a.index.duplicated(keep="first")]
+        a = a.reindex(p.index).ffill().fillna(0.0).clip(0.0, 1.0)
+        clears = clears * (k * a).clip(0.0, 1.0)
+    elif model == "ramp":
+        if ramp_dkk_mwh is None or ramp_dkk_mwh <= 0:
+            raise ValueError("model='ramp' kræver ramp_dkk_mwh > 0")
+        afstand = (p - bid) if direction == "up" else (bid - p)
+        clears = (afstand / ramp_dkk_mwh).clip(0.0, 1.0)
+    else:
+        raise ValueError(f"ukendt aktiveringsmodel {model!r}")
+
     # Fuld (brutto) værdi pr. MWh op-reguleret el i de clearende intervaller.
     value_per_mwh = p + s + el_cost_flat
     value_sub = dt_h * clears * value_per_mwh          # DKK pr. MW pr. sub-interval
     # Netto aktiveringsbetaling: kun aktiveringsprisen p, samme clearing/grid.
     # Differensen (av − av_payment) = forbrugsmodregningen (spot + el_cost_flat).
     payment_sub = dt_h * clears * p                    # DKK pr. MW pr. sub-interval
-    cleared_h_sub = dt_h * clears                      # timer clearet pr. sub-interval
+    cleared_h_sub = dt_h * clears                      # aktiverede timer pr. sub-interval
 
     av_hourly = value_sub.resample("1h").sum()
     av_payment_hourly = payment_sub.resample("1h").sum()

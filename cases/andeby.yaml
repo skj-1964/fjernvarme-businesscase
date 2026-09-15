@@ -33,8 +33,9 @@
 #  6. prices              Dine brændselspriser, ekskl. moms, pr. MWh brændsel.
 #  7. electricity         Tarifbåndene fra dit netselskabs prisblad og din
 #                         elafgift. De to afgiftstal skal være ens.
-#  8. balancing           Kun hvis du kører --with-balancing. Se advarslen i
-#                         blokken, før du bruger tallene.
+#  8. balancing           Kun hvis du kører --with-balancing. Læs noten om
+#                         aktivering og reservation i blokken, før du bruger
+#                         tallene.
 #
 # Resten kan stå.
 #
@@ -428,12 +429,20 @@ storage:
 # ------------------------------------------------------------------------------
 # Uden --with-balancing læses blokken ikke, og varmeprisen er ren.
 #
-# ADVARSEL (15. september 2026): brug ikke balancetallene udadtil endnu.
-# Modellen antager, at hele den reserverede effekt aktiveres i hvert kvarter,
-# hvor aktiveringsprisen ligger over buddet. Målt mod Billunds afregning for
-# andet halvår 2025 giver det 4–5 gange for meget aktiveret energi, når
-# reservation_gate er slået fra, som her. Kapacitetsindtægten rammer
-# nogenlunde; aktiveringsindtægten gør ikke. Metoden kan vises, tallene ikke.
+# AKTIVERING (session 28): samme mekanismer som Billund Spor B, kalibreret på
+# marts–juni 2026. Markedet skiftede hen over vinteren 25/26, så kalibreringen
+# gentestes til vinter 26/27.
+#   foresight: profile   reservationen besluttes på forventet aktiverings-
+#                        værdi, ikke den realiserede (buddet afgives dagen før).
+#   aFRR system_share k=4  kun en del af buddet aktiveres, når prisen clearer.
+#   mFRR clear           marginalpris: buddet aktiveres, når prisen clearer.
+# Manifestets aktiveringstal er med profile FORVENTEDE værdier.
+#
+# RESERVATION: Billunds månedlige tilgængelighedsloft er IKKE overført — det
+# beskriver Billunds adfærd, ikke Andebys. Uden loft reserverer modellen al den
+# effekt, footroom tillader; for Billund var det 3–8 gange det realiserede.
+# Andebys reservations- og balancetal er derfor et POTENTIALE ved fuld
+# tilgængelighed, ikke en forventning. Sig det, når tallene vises.
 balancing:
   method: activation_value
   bid_strategy:
@@ -450,6 +459,13 @@ balancing:
     per_unit_market_mw:
       vp_luft_vand: {afrr: 2.0, mfrr: 3.0}
     total_mw: 14.0            # [BEKRÆFT] samlet prækvalificeret kapacitet
+
+  # Aktiveret andel pr. marked. model: clear | system_share | ramp.
+  # foresight: realized | profile. Se noten ovenfor.
+  activation:
+    foresight: profile
+    afrr: {model: system_share, k: 4.0}
+    mfrr: {model: clear}
 
   # ---------------------------------------------------------------------
   # BUDTÆRSKEL REGNET AF BRÆNDSELSSTAKKEN
