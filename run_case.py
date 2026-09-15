@@ -14,11 +14,16 @@ Brug:
     python run_case.py cases/billund_sporA.yaml --external \
         --set prices.co2_eua.value=800 --set prices.natural_gas.value=500
 
-Datakilder (vælg én — default er --dummy):
+Datakilder (vælg præcis én — der er ingen default):
     --dummy       fuldt syntetiske serier (temp, spot, last)
     --external    rigtig DMI-temp + Energinet-spot + syntetisk varmelast
                   (dual-slope v2 fra cfg.heat_load_params)
     --data-path   sti til Billunds rigtige målerdata (ikke aktiveret endnu)
+    --data-source github
+                  df-data-repoet (implicerer --external)
+
+    Uden en datakilde stopper kørslen. Tidligere var --dummy default, så en
+    glemt flag gav syntetiske tal, der lignede rigtige.
 
 Periode (vælg max én variant — alle overrider cfg.time):
     --year YYYY                     hele kalenderåret
@@ -97,7 +102,7 @@ def _parse_args():
     # Datakilde — mutuelt eksklusive
     src = p.add_mutually_exclusive_group()
     src.add_argument("--dummy", action="store_true",
-                     help="Fuldt syntetiske data (default)")
+                     help="Fuldt syntetiske data (skal vælges eksplicit)")
     src.add_argument("--external", action="store_true",
                      help="Rigtig DMI-temp + Energinet-spot + syntetisk last")
     src.add_argument("--data-path", type=str, default=None,
@@ -229,7 +234,38 @@ def _parse_args():
         ),
     )
 
-    return p.parse_args()
+    args = p.parse_args()
+    _require_data_source(args, p.error)
+    return args
+
+
+# Datakilden har ingen default. Med --dummy som default gav en glemt flag
+# syntetiske tal, der så rigtige ud -- samme fælde som dmi_area havde.
+DATA_SOURCE_MISSING_MSG = (
+    "Ingen datakilde valgt. Vælg præcis én:\n"
+    "  --data-source github   rigtige markeds- og vejrdata fra df-data "
+    "(anbefalet)\n"
+    "  --external             rigtige data direkte fra Energinet/DMI\n"
+    "  --dummy                fuldt syntetiske data (kun til test)\n"
+    "  --data-path STI        målerdata fra fil"
+)
+
+
+def _require_data_source(args, fail) -> None:
+    """Kald fail(besked), hvis ingen datakilde er valgt eksplicit.
+
+    --data-source github tæller som valg, fordi det implicerer --external.
+    --data-source api (argparse-defaulten) tæller ikke -- den har kun
+    betydning sammen med --external.
+    """
+    chosen = (
+        args.dummy
+        or args.external
+        or args.data_path is not None
+        or args.data_source == "github"
+    )
+    if not chosen:
+        fail(DATA_SOURCE_MISSING_MSG)
 
 
 def _build_output_stem(args, cfg) -> str:
@@ -398,6 +434,10 @@ def _load_data(args, cfg):
         print(f"Indlæser Billund-data fra {args.data_path}...")
         return load_billund_data(cfg, args.data_path)
 
+    if not args.dummy:
+        # Skal ikke kunne ske efter _require_data_source, men en tavs
+        # fallback til syntetiske data er præcis den fejl, vi lukker.
+        raise ValueError(DATA_SOURCE_MISSING_MSG)
     print("Genererer dummy-data...")
     return generate_dummy_data(cfg)
 

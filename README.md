@@ -33,9 +33,14 @@ python -m venv .venv
 source .venv/bin/activate            # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
-python run_case.py cases/billund_sporA.yaml --data-source github \
-    --start 2025-04-01 --end 2026-03-31 --with-balancing
+python run_case.py cases/billund_sporA_rullende.yaml --data-source github \
+    --with-balancing
 ```
+
+Periode og DMI-station står i casen. En tidligere version af denne kommando
+brugte `billund_sporA.yaml` med `--start 2025-04-01 --end 2026-03-31`; den
+fejler nu på dækning, fordi fyn-stationen mangler timer 1. januar og
+28. februar–1. marts 2026. Den rullende case bruger karup, som er hel.
 
 Første kørsel kloner automatisk
 [`df-data`](https://github.com/skj-1964/df-data) (~50 MB) til
@@ -76,7 +81,7 @@ to kørsler:
 
 ```bash
 # Fælles base (gentages i begge kørsler)
-BASE="cases/billund_sporA.yaml --data-source github --start 2025-04-01 --end 2026-03-31"
+BASE="cases/billund_sporA_rullende.yaml --data-source github"
 
 # Baseline — uden balancemarked
 python run_case.py $BASE
@@ -112,7 +117,8 @@ Se rapportens bilag C for fulde eksempler.
 
 `run_case.py` tager én positionsparameter (case-YAML'en) plus en række
 valgfrie flag. Alle flag har fornuftige defaults, så den korteste gyldige
-kørsel er `python run_case.py cases/billund_sporA.yaml` (dummy-data).
+kørsel er `python run_case.py cases/billund_sporA.yaml --data-source github`.
+Der er ingen standard-datakilde; uden en af dem stopper kørslen.
 Kør `python run_case.py --help` for den autoritative liste.
 
 ### Positionsargument
@@ -121,23 +127,26 @@ Kør `python run_case.py --help` for den autoritative liste.
 | -------- | ----------- |
 | `case` | Sti til case-YAML (fx `cases/billund_sporA.yaml`). Definerer enheder, lagre, priser, afgifter og balancemarked-opsætning. |
 
-### Datakilde (vælg én — default `--dummy`)
+### Datakilde (vælg præcis én — ingen default)
 
 | Flag | Beskrivelse |
 | ---- | ----------- |
-| `--dummy` | Fuldt syntetiske serier (temperatur, spot, last). Default. Bruges til hurtige struktur-tests uden netadgang. |
+| `--dummy` | Fuldt syntetiske serier (temperatur, spot, last). Skal vælges eksplicit. Kun til hurtige struktur-tests uden netadgang — tallene ligner rigtige, men er det ikke. |
 | `--external` | Rigtig DMI-temperatur + Energinet-spot + syntetisk varmelast (kalibreret fra `heat_load_params`). |
 | `--data-path PATH` | Sti til værkets egne målerdata (endnu ikke aktiveret). |
-| `--data-source {api,github}` | Hvorfra `--external` henter data. `api` = Energinet/DMI direkte (default). `github` = `df-data`-cachen (sandkasse-venligt; **impliserer `--external`**). |
+| `--data-source {api,github}` | Hvorfra `--external` henter data. `api` = Energinet/DMI direkte. `github` = `df-data`-cachen (anbefalet; **impliserer `--external`** og tæller alene som valg af datakilde). `--data-source api` uden `--external` er ikke et valg. |
 
 Til external-kilden findes desuden:
 
-| Flag | Default | Beskrivelse |
-| ---- | ------- | ----------- |
-| `--dmi-area` | `fyn` | DMI area-kode (Billund har ikke egen station; fyn er klimatisk tæt). |
-| `--dmi-temp-shortname` | `temp_mean_past1h` | DMI-observationsvariabel for temperatur. |
-| `--price-zone` | `DK1` | Energinet priszone for spot. |
-| `--eur-dkk` | `7.45` | EUR→DKK-kurs til spot-konvertering. |
+| Flag | Uden flag | Beskrivelse |
+| ---- | --------- | ----------- |
+| `--dmi-area` | `data.dmi_area` i casen (påkrævet) | DMI area-kode. Flaget overskriver casen. |
+| `--dmi-temp-shortname` | `data.dmi_temp_shortname` (`temp_mean_past1h`) | DMI-observationsvariabel for temperatur. |
+| `--price-zone` | `data.price_zone` i casen (påkrævet) | Energinet priszone for spot. |
+| `--eur-dkk` | `data.eur_dkk` (`7.45`) | EUR→DKK-kurs til spot-konvertering. |
+
+Loaderne (`load_external_data`, `load_external_data_github`) læser samme
+data-blok, når de kaldes direkte fra et script uden disse argumenter.
 | `--cache-dir` | `data/raw` | Mappe til cachede API-svar (Parquet). |
 | `--force-refresh` | — | Ignorér cache, hent fra API påny. |
 | `--df-data-url` | repo-default | Git-URL til `df-data`-repo'et (kun `--data-source github`). |

@@ -1,31 +1,56 @@
 # ==============================================================================
 # ANDEBY VARMEVÆRK — fiktivt referenceværk, rullende år juli 2025 – juni 2026
 # ==============================================================================
-# Andeby er et FIKTIVT referenceværk til regulerings-analyser (afgifter,
-# tariffer m.m.). Det er afledt af cases/billund_2025.yaml (samme maskine:
-# heat-syntese, activation_value-balancering, ancillary-config), men med et
-# andet anlæg: en halmkedel (12 MW) som grundlast, en solvarmepark, og en
-# flåde skaleret til et mindre værk (~100 GWh mod Billunds ~127,5 GWh,
-# faktor 0,784).
+# Andeby er et FIKTIVT værk. Tallene er plausible, ikke nogens. Brug filen som
+# skabelon til dit eget værk: kopiér den, omdøb den, og gå listen nedenfor
+# igennem oppefra.
 #
-# NYT i denne case: enhedstypen solar_thermal (fuel: "solar"). Solvarmens
-# leverbare effekt bindes af en tidsvarierende profil-CSV
-# (data/synthetic_solar_andeby.csv), ikke kun af nameplate. Profilen er
-# syntetisk i trin 1 (se scripts/generate_solar_andeby.py) og erstattes
-# senere med DMI-solstråling/måledata.
+# KØR:
+#   python run_case.py cases/andeby.yaml --data-source github
 #
-# KØRES MED (regulerings-brug = uden balancering, så varmeprisen er ren):
-#   python run_case.py cases/andeby.yaml --data-source github --dmi-area karup
+# Periode, DMI-station og priszone står i filen; der skal ingen flag til.
+# Hele året tager 7–15 minutter. Til en hurtig prøve:
+#   python run_case.py cases/andeby.yaml --data-source github \
+#       --start 2026-01-05 --end 2026-01-18
 #
-# --dmi-area karup er IKKE valgfrit i dette vindue: fyn og vestkyst mangler
-# 28. februar 2026 og stopper på coverage.
+# ------------------------------------------------------------------------------
+# DET, DU SKAL ÆNDRE — i denne rækkefølge
+# ------------------------------------------------------------------------------
+#  1. data.dmi_area       Den DMI-station, der ligner dit klima. Flytter
+#                         resultatet med op til ca. 4 %. Kendte: se fejlbeskeden,
+#                         hvis du skriver forkert.
+#     data.price_zone     DK1 vest for Storebælt, DK2 øst for.
+#  2. time                Behold det rullende år, medmindre du ved, at dine
+#                         data dækker et andet. Stopper kørslen på "dækning
+#                         mangler", er det her, du skal kigge.
+#  3. heat_load_params    Andebys syntetiske varmebehov. Har du timedata for
+#                         dit eget værk, så brug dem i stedet:
+#                         --heat-csv din_fil.csv  (kolonne heat_mw_abvaerk)
+#  4. units               Dine enheder: p_max_heat, p_min_heat, virkningsgrad,
+#                         var_om, min-driftstid. Sæt enabled: false for det, du
+#                         ikke har. Enhedsnavnene er frie.
+#  5. storage             Tankvolumen og ΔT. Ét lager pr. temperaturniveau.
+#  6. prices              Dine brændselspriser, ekskl. moms, pr. MWh brændsel.
+#  7. electricity         Tarifbåndene fra dit netselskabs prisblad og din
+#                         elafgift. De to afgiftstal skal være ens.
+#  8. balancing           Kun hvis du kører --with-balancing. Se advarslen i
+#                         blokken, før du bruger tallene.
 #
-# Forventning: MILP (halmkedlen er en UC-enhed med min-uptime/p_min),
-# halmkedel som grundlast (~55 % af varmeproduktionen), solvarme-andel
-# ≈ 12 %, sommer-curtailment når tanken er fuld.
+# Resten kan stå.
 #
-# INLINE-MARKØRER: [BEKRÆFT] = arvet fra billund_2025 og ikke kalibreret til
-# Andeby (fiktivt værk, men hold tallene plausible).
+# ------------------------------------------------------------------------------
+# MARKØRER
+# ------------------------------------------------------------------------------
+# [BEKRÆFT] = tal arvet fra et rigtigt værk og ikke tilpasset Andeby. De er
+# plausible, men ingen har besluttet dem. Til dit eget værk skal de erstattes.
+#
+# Forventning ved kørsel uden balancering: MILP (halmkedlen har min-driftstid
+# og min-last), halmkedel som grundlast (ca. 55 % af varmen), solvarme ca.
+# 12 %, sommer-curtailment når tanken er fuld.
+#
+# Teknisk: filen bruger enhedstypen solar_thermal, hvis effekt bindes af en
+# tidsserie (data/synthetic_solar_andeby.csv), ikke kun af nameplate. Profilen
+# er syntetisk (scripts/generate_solar_andeby.py) og dækker 2025–2026.
 # ==============================================================================
 
 meta:
@@ -76,8 +101,8 @@ data:
 #   3) HVER MÅNED ÉN GANG. Tarifsæsonerne (måned-baserede) og solprofilens
 #      årssum på 12 GWh falder ud rigtigt uden justering.
 #
-# BEMÆRK --dmi-area: brug `karup`. fyn og vestkyst mangler 28. februar 2026
-# (ca. 30 timer) og fejler på coverage. karup har nul huller i vinduet.
+# Stationen står i data-blokken ovenfor. fyn og vestkyst mangler 28. februar
+# 2026 (ca. 30 timer) og fejler på dækning; karup har nul huller i vinduet.
 # ------------------------------------------------------------------------------
 time:
   start: "2025-07-01T00:00:00Z"
@@ -200,7 +225,7 @@ electricity:
   electricity_tax: 4.0
 
 # ------------------------------------------------------------------------------
-# PRODUKTIONSENHEDER — Andebys flåde (ingen biomasse; solvarme tilføjet)
+# PRODUKTIONSENHEDER — halmkedel som grundlast, gas som spids, solvarme, el
 # ------------------------------------------------------------------------------
 units:
 
@@ -399,10 +424,16 @@ storage:
     notes: "Højtemperaturlag (fiktivt)."
 
 # ------------------------------------------------------------------------------
-# BALANCEMARKED — arvet fra billund_2025 (inert uden --with-balancing)
+# BALANCEMARKED — kun aktiv med --with-balancing
 # ------------------------------------------------------------------------------
-# Regulerings-brug kører UDEN --with-balancing, så denne blok er inaktiv og
-# varmeprisen er ren. Beholdt for fidelity hvis Andeby senere skal byde.
+# Uden --with-balancing læses blokken ikke, og varmeprisen er ren.
+#
+# ADVARSEL (15. september 2026): brug ikke balancetallene udadtil endnu.
+# Modellen antager, at hele den reserverede effekt aktiveres i hvert kvarter,
+# hvor aktiveringsprisen ligger over buddet. Målt mod Billunds afregning for
+# andet halvår 2025 giver det 4–5 gange for meget aktiveret energi, når
+# reservation_gate er slået fra, som her. Kapacitetsindtægten rammer
+# nogenlunde; aktiveringsindtægten gør ikke. Metoden kan vises, tallene ikke.
 balancing:
   method: activation_value
   bid_strategy:

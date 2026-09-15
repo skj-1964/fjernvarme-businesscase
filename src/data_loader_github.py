@@ -525,10 +525,10 @@ def load_external_data_github(
     cfg: CaseConfig,
     *,
     heat_load: Optional[HeatLoadParams] = None,
-    dmi_area: str = "fyn",
-    dmi_temp_shortname: str = "temp_mean_past1h",
-    price_zone: str = "DK1",
-    eur_dkk: float = DEFAULT_EUR_DKK,
+    dmi_area: Optional[str] = None,
+    dmi_temp_shortname: Optional[str] = None,
+    price_zone: Optional[str] = None,
+    eur_dkk: Optional[float] = None,
     with_balancing: bool = False,
     repo_url: str = DEFAULT_DF_DATA_URL,
     cache_dir: str | Path = DEFAULT_DF_DATA_CACHE,
@@ -548,6 +548,15 @@ def load_external_data_github(
         raise ValueError(
             "heat_load (HeatLoadParams) skal angives. Brug load_heat_load_params()."
         )
+
+    # dmi_area m.fl. har ingen skjult default her. Uden eksplicit værdi
+    # læses casens data-blok -- ellers ville scripts, der kalder loaderen
+    # direkte, tavst få fyn/DK1 uanset hvad casen erklærer.
+    dmi_area = cfg.data.dmi_area if dmi_area is None else dmi_area
+    price_zone = cfg.data.price_zone if price_zone is None else price_zone
+    if dmi_temp_shortname is None:
+        dmi_temp_shortname = cfg.data.dmi_temp_shortname
+    eur_dkk = cfg.data.eur_dkk if eur_dkk is None else eur_dkk
 
     repo_root = _ensure_df_data_cache(repo_url, cache_dir, force_refresh)
 
