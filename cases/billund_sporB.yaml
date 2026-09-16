@@ -13,11 +13,12 @@
 #     Erstatter det gamle shared_reserve_cap_mw.
 #   * bid_strategy: op-bud = spot + 500 (Tier 1; bånd op til +2000 er Tier 2).
 #
-# KØRES MED:
-#   python run_case.py cases/billund_backtest_jan_apr_2026.yaml \
+# KØRES MED (vindue 2.3.–30.6.2026 fra time:-blokken):
+#   python run_case.py cases/billund_sporB.yaml \
 #       --data-source github --with-balancing \
-#       --start 2026-01-01 --end 2026-04-30 \
-#       --heat-csv data/billund_abvaerk_hourly.csv
+#       --heat-csv data/billund_abvaerk_hourly_splejset_jun2026.csv
+# Med den rene målte CSV (data/billund_abvaerk_hourly.csv) stopper kørslen:
+# den slutter 24/6 06:00 og mangler 161 af vinduets 2.904 timer (5,5 %).
 #
 # A/B mod gammel metode (samme case, kun toggle):
 #   ... --balancing-method legacy
@@ -68,9 +69,14 @@ data:
 # ------------------------------------------------------------------------------
 time:
   # Aftalt med John: kør marts–juni 2026 (rent vindue, post-indkøring, VP på balance).
-  # Jan–feb udeladt (indkøringsanomali). Slut ved 23/6 — varme-CSV stopper 24/6 06:00.
+  # Jan–feb udeladt (indkøringsanomali).
+  # Hele juni med (session 29): facit er hele måneden, så vinduet skal også
+  # være det. Målt varmelast slutter 24/6 06:00; resten af juni er DMI-syntese
+  # i data/billund_abvaerk_hourly_splejset_jun2026.csv (kolonnen kilde).
+  # Tidligere slut: 2026-06-23T23:00 — facit og juni-loft dækkede dog hele
+  # måneden, hvilket gav 110 % i stedet for 117 % (STATUS_session29).
   start: "2026-03-02T00:00:00Z"   # IKKE 03-01: fyn mangler frem til 1. marts kl. 15
-  end:   "2026-06-23T23:00:00Z"
+  end:   "2026-06-30T23:00:00Z"
   resolution: "1h"
 
 # ------------------------------------------------------------------------------
@@ -346,14 +352,21 @@ balancing:
   #  3. availability: energy — Billunds reserverede MWh pr. måned (facit,
   #     MW-snit over vinduets timer) som loft. Modellen vælger timerne.
   #     Uden loftet reserverer modellen 3–8 gange Billunds volumen.
+  #     Loftet MÅ kun ændres sammen med vinduet: MWh / timer i vinduet.
+  #     Juni: aFRR 57,52 MWh / 720 t = 0,0799; mFRR 40,52 MWh / 720 t = 0,0563.
+  #     Loftet begrænser mængden, ikke blokstørrelsen: modellen samler
+  #     reservationen i få, dyre timer (8–16 MW) — Billund bød ≤ 2,8/3,7 MW
+  #     i juni (STATUS_session29).
   #
-  # Mod facit (FORB Op), 2.3.–23.6.2026: se STATUS_session28 §7.
+  # Mod facit (FORB Op), 2.3.–30.6.2026: aFRR 102 %, mFRR 130 %, i alt
+  # 117 % (objektiv 4.485.617, gap 0,34 %). Se STATUS_session29.
   #
   # BEMÆRK: manifest og sammendrag viser med foresight: profile FORVENTEDE
   # aktiveringstal. Den realiserede værdi af den valgte reservation regnes
   # ex post (diag_session28: compare.py).
   #
-  # Den gamle Spor B (CM-gate driven + clear, samme vindue) genskabes med:
+  # Den gamle Spor B (CM-gate driven + clear, vindue til 23/6) genskabes med:
+  #   --start 2026-03-02 --end 2026-06-23 \
   #   --set balancing.reservation_gate.enabled=true \
   #   --set balancing.availability.enabled=false \
   #   --set balancing.activation.foresight=realized \
@@ -366,9 +379,9 @@ balancing:
     enabled: true
     mode: energy
     afrr:
-      mw_by_month: {"2026-03": 1.155, "2026-04": 1.186, "2026-05": 0.411, "2026-06": 0.104}
+      mw_by_month: {"2026-03": 1.155, "2026-04": 1.186, "2026-05": 0.411, "2026-06": 0.0799}
     mfrr:
-      mw_by_month: {"2026-03": 1.034, "2026-04": 0.753, "2026-05": 0.123, "2026-06": 0.073}
+      mw_by_month: {"2026-03": 1.034, "2026-04": 0.753, "2026-05": 0.123, "2026-06": 0.0563}
   # Tidligere Spor B: CM-gate kalibreret på samme vindue (session 23–25).
   # gate-frekvens × block_mw = facit MW-snit (aFRR 0,743 / mFRR 0,509).
   #   aFRR: tau=75  → frekvens 26,3 % → B=2,82
