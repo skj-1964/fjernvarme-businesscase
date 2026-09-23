@@ -9,6 +9,9 @@ Skriver to filer ved siden af arket:
     cases/<slug>.yaml                  casefilen
     data/<slug>_abvaerk_hourly.csv     varmelasten fra arket Timedata
 
+Er arket Timedata tomt, men årsproduktionen i B3 udfyldt, skrives kun
+casefilen, og varmelasten syntetiseres af modellen ud fra DMI-vejrdata.
+
 og kører derefter:
 
     python run_case.py cases/<slug>.yaml --data-source github \
@@ -95,11 +98,48 @@ def laes_tidszone(sti: Path) -> str:
         "uden at noget ser forkert ud.")
 
 
+def laes_aarsproduktion(sti: Path) -> float | None:
+    """Årsproduktion ab værk i GWh — Timedata!B3.
+
+    Feltet er tilføjet, fordi kollegerne bad om én samlet tidsserie plus et
+    årstal, så en varmelast kan syntetiseres fra DMI-data, når SRO ikke kan
+    levere timeværdier. Tallet bruges to steder: som krydstjek mod den målte
+    timeserie, og som eneste grundlag når timeserien mangler helt."""
+    raa = pd.read_excel(sti, sheet_name="Timedata", header=None, nrows=3)
+    try:
+        v = raa.iat[2, 1]
+    except IndexError:
+        return None
+    gwh = tal(v, "Timedata: årsproduktion (celle B3)")
+    if gwh is None:
+        return None
+    if not 0.5 < gwh < 5000:
+        raise ArkFejl(
+            f"Årsproduktionen i Timedata!B3 er {gwh}. Den skal stå i GWh pr. år "
+            "— fx 42,5 for et værk, der leverer 42.500 MWh. Et tal i MWh eller "
+            "kWh her gør hele businesscasen forkert uden at se forkert ud.")
+    return float(gwh)
+
+
 def laes_timedata(sti: Path, slugnavn: str, ud_dir: Path, overskriv: bool,
-                  tz: str) -> tuple[Path, str, str, float]:
+                  tz: str, aars_gwh: float | None = None
+                  ) -> tuple[Path | None, str, str, float]:
     df = pd.read_excel(sti, sheet_name="Timedata", skiprows=4, usecols=[0, 1])
     df.columns = ["timestamp", "heat_mw_abvaerk"]
     df = df.dropna(how="all")
+
+    # Helt tomt ark → kør på årsproduktionen alene, hvis den er udfyldt.
+    if df.dropna(how="all").empty:
+        if aars_gwh is None:
+            raise ArkFejl(
+                "Arket Timedata er tomt, og årsproduktionen i B3 er heller ikke "
+                "udfyldt. Modellen skal have mindst ét af de to: timeværdier fra "
+                "række 6, eller årsproduktionen i GWh.")
+        print("    Ingen timeserie i arket. Varmelasten syntetiseres ud fra "
+              f"årsproduktionen på {aars_gwh:.1f} GWh og DMI-vejrdata. "
+              "Resultatet er et regneeksempel med værkets anlæg og priser — "
+              "ikke en model af værkets faktiske drift.")
+        return None, "2025-07-01T00:00:00Z", "2026-06-30T23:00:00Z", aars_gwh
 
     df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce", utc=False)
     ubrugelige = df["timestamp"].isna()
@@ -179,6 +219,20 @@ def laes_timedata(sti: Path, slugnavn: str, ud_dir: Path, overskriv: bool,
 
     print(f"  Timedata: {len(df)} timer, {df['timestamp'].iloc[0]:%Y-%m-%d} til "
           f"{df['timestamp'].iloc[-1]:%Y-%m-%d} (UTC), dækning {daekning:.1%}")
+
+    # Krydstjek mod det årstal, deltageren selv har skrevet. De to tal kommer
+    # fra hver sin kilde — SRO-udtrækket og årsopgørelsen — og er de uenige,
+    # er det som regel enheden (MW mod MWh) eller en manglende måler.
+    if aars_gwh is not None:
+        afvig = (aarsvolumen - aars_gwh) / aars_gwh
+        if abs(afvig) > 0.05:
+            print(f"    Timeserien svarer til {aarsvolumen:.1f} GWh/år, men B3 "
+                  f"siger {aars_gwh:.1f} GWh — {afvig:+.0%}. Tjek om udtrækket "
+                  "dækker hele værket, og om kolonne B er MW og ikke MWh eller "
+                  "kWh. Modellen bruger timeserien.")
+    else:
+        print("    Årsproduktionen i Timedata!B3 er ikke udfyldt. Den bruges "
+              "som kontrol af timeserien — udfyld den gerne.")
     if huller:
         # Modellen (apply_heat_csv_override) interpolerer lineært op til 5 %
         # af vinduet og stopper først derover. På et år er det op til 438
@@ -200,7 +254,7 @@ def laes_timedata(sti: Path, slugnavn: str, ud_dir: Path, overskriv: bool,
 # -------------------------------------------------------------------- anlæg
 def laes_enheder(sti: Path, priser: dict) -> dict:
     df = pd.read_excel(sti, sheet_name="Anlaeg", skiprows=3, usecols=range(13), nrows=19)
-    df.columns = ["navn", "type", "p_max", "p_min", "eta", "cop", "alpha",
+    df.columns = ["navn", "type", "p_max", "p_min", "eta", "cop", "eta_el",
                   "var_om", "start_cost", "min_up", "min_down", "balance",
                   "sol_gwh"]
     df = df.dropna(subset=["navn", "type"])
@@ -224,8 +278,7 @@ def laes_enheder(sti: Path, priser: dict) -> dict:
             "type": type_,
             "p_max_heat": tal(r["p_max"], f"række {raekke}, maks varme", kraev=True),
             "p_min_heat": tal(r["p_min"], f"række {raekke}, min varme") or 0.0,
-            "alpha": tal(r["alpha"], f"række {raekke}, el-forhold") or 0.0,
-            "var_om": tal(r["var_om"], f"række {raekke}, variabel drift") or 0.0,
+            "var_om": tal(r["var_om"], f"række {raekke}, D&V") or 0.0,
             "start_cost": tal(r["start_cost"], f"række {raekke}, startomkostning") or 0.0,
             "min_uptime": int(tal(r["min_up"], f"række {raekke}, min driftstid") or 1),
             "min_downtime": int(tal(r["min_down"], f"række {raekke}, min stoptid") or 1),
@@ -263,10 +316,74 @@ def laes_enheder(sti: Path, priser: dict) -> dict:
             # Selve profilen skrives senere — den kræver kørslens tidsvindue.
             u["_sol_gwh"] = gwh
 
+        # ------------------------------------------------------------------
+        # El-til-varme-forholdet (alpha) er IKKE et arkfelt. Deltageren opgiver
+        # virkningsgrader, som anlægsfolk kender fra typeskilt og årsopgørelse,
+        # og alpha udledes herfra. Det fjerner den fejlkilde, at arket og
+        # modellen kan komme til at sige to forskellige ting om samme enhed.
+        #
+        #   varmepumpe:   alpha = −1/COP        (dispatch bruger cop_curve)
+        #   elkedel:      alpha = −1/η_varme    (η_varme = MWh varme pr. MWh el)
+        #   gasmotor:     alpha = η_el/η_varme  (begge pr. MWh brændsel)
+        #   øvrige:       alpha = 0
+        # ------------------------------------------------------------------
+        eta_el = tal(r["eta_el"], f"række {raekke}, elvirkningsgrad")
+        if eta_el is not None and type_ != "gas_engine_chp":
+            raise ArkFejl(
+                f"Række {raekke}: elvirkningsgrad er udfyldt for en {type_}. "
+                "Feltet gælder kun gasmotorer. For varmepumper regnes der på "
+                "COP, for elkedler på varme virkningsgrad.")
+
         if type_ == "heat_pump":
             cop = tal(r["cop"], f"række {raekke}, COP", kraev=True)
+            if not 1.5 <= cop <= 6.0:
+                raise ArkFejl(
+                    f"Række {raekke}: COP på {cop} ser forkert ud. Det skal være "
+                    "COP ved 0 °C udetemperatur, typisk 2,5–3,5 for luft/vand. "
+                    "En årsvirkningsgrad eller en COP ved 7 °C hører ikke til her.")
             u["cop_curve"] = {"type": "linear", "a": round(cop, 3), "b": 0.08,
                               "cop_min": 1.8, "cop_max": 4.5}
+            # Dispatch og balancering bruger cop_curve; alpha er fallback og
+            # skal pege samme vej, så casefilen ikke modsiger sig selv.
+            u["alpha"] = round(-1.0 / cop, 4)
+
+        elif type_ == "electric_boiler":
+            eta_kedel = tal(r["eta"], f"række {raekke}, varme virkningsgrad")
+            if eta_kedel is None:
+                eta_kedel = 0.99
+                print(f"    Række {raekke}: elkedlens virkningsgrad er tom — "
+                      "regnet som 0,99 MWh varme pr. MWh el.")
+            if not 0.80 <= eta_kedel <= 1.0:
+                raise ArkFejl(
+                    f"Række {raekke}: elkedlens virkningsgrad er {eta_kedel}. "
+                    "Den skal være MWh varme pr. MWh el, typisk 0,98–0,99.")
+            u["alpha"] = round(-1.0 / eta_kedel, 4)
+
+        elif type_ == "gas_engine_chp":
+            if eta_el is None:
+                raise ArkFejl(
+                    f"Række {raekke}: gasmotoren mangler elvirkningsgrad. "
+                    "Skriv MWh el pr. MWh brændsel, fx 0,41. Uden den kender "
+                    "modellen ikke elindtægten, og hele pointen med en gasmotor "
+                    "forsvinder.")
+            if not 0 < eta_el < 0.60:
+                raise ArkFejl(
+                    f"Række {raekke}: elvirkningsgrad {eta_el} ser forkert ud. "
+                    "Den skal være en brøkdel, fx 0,41 — ikke 41.")
+            eta_varme = u["eta_fuel_to_heat"]
+            samlet = eta_el + eta_varme
+            if not 0.70 <= samlet <= 1.05:
+                raise ArkFejl(
+                    f"Række {raekke}: el- og varmevirkningsgrad giver tilsammen "
+                    f"{samlet:.2f}. En gasmotor ligger typisk på 0,85–0,95. Står "
+                    "de to tal på samme grundlag (nedre brændværdi), og er "
+                    "varmen målt ab motor?")
+            u["alpha"] = round(eta_el / eta_varme, 4)
+            print(f"    Række {raekke}: alpha = {u['alpha']:.3f} "
+                  f"(el {eta_el:.2f} ÷ varme {eta_varme:.2f})")
+
+        else:
+            u["alpha"] = 0.0
         if type_ in ("gas_boiler", "gas_engine_chp"):
             u["co2_emissions_per_mwh_fuel"] = 0.2
 
@@ -293,7 +410,7 @@ def laes_enheder(sti: Path, priser: dict) -> dict:
 
 def laes_tanke(sti: Path) -> dict:
     df = pd.read_excel(sti, sheet_name="Anlaeg", skiprows=50, usecols=range(5), nrows=6)
-    df.columns = ["navn", "volumen", "delta_t", "lade", "aflade"]
+    df.columns = ["navn", "volumen", "e_max", "lade", "aflade"]
     df = df.dropna(subset=["navn", "volumen"])
     if df.empty:
         raise ArkFejl("Arket Anlaeg har ingen akkumuleringstanke. "
@@ -303,16 +420,32 @@ def laes_tanke(sti: Path) -> dict:
     for i, r in df.iterrows():
         raekke = int(i) + 52
         vol = tal(r["volumen"], f"tank række {raekke}, volumen", kraev=True)
-        dt = tal(r["delta_t"], f"tank række {raekke}, delta T", kraev=True)
-        if not 5 <= dt <= 80:
-            raise ArkFejl(f"Tank række {raekke}: delta T på {dt} K ser forkert ud. "
-                          "Det er forskellen mellem frem og retur, typisk 25–60 K.")
+        e_max = tal(r["e_max"], f"tank række {raekke}, maks fyldning", kraev=True)
+        if not 0.5 < e_max < 5000:
+            raise ArkFejl(
+                f"Tank række {raekke}: maks fyldning på {e_max} MWh ser forkert "
+                "ud. En tank på 5.000 m³ rummer typisk 150–250 MWh. Står tallet "
+                "i kWh eller i m³?")
+        # Temperaturspringet spørger vi ikke om — men modellen skal have det,
+        # og det er samtidig den eneste kontrol af, at volumen og MWh passer
+        # sammen. 1 m³ vand pr. K er 1,163 kWh.
+        dt = e_max * 1000.0 / (1.163 * vol)
+        if not 10 <= dt <= 80:
+            raise ArkFejl(
+                f"Tank række {raekke}: {vol:.0f} m³ og {e_max:.0f} MWh svarer "
+                f"til et temperaturspring på {dt:.0f} K mellem frem og retur. "
+                "Det ligger uden for det fysisk rimelige (typisk 25–60 K), så "
+                "et af de to tal er forkert — oftest volumen i liter eller "
+                "fyldningen i kWh.")
+        if not 20 <= dt <= 70:
+            print(f"    Tank række {raekke}: volumen og maks fyldning svarer til "
+                  f"{dt:.0f} K. Det er i den yderlige ende — tjek begge tal.")
         storage[slug(r["navn"])] = {
             "enabled": True,
             "volume_m3": int(vol),
-            "delta_t_k": dt,
-            "e_max_mwh": None,
-            "e_initial_mwh": round(vol * dt * 1.163 / 1000 * 0.5, 1),
+            "delta_t_k": round(dt, 2),
+            "e_max_mwh": round(e_max, 1),
+            "e_initial_mwh": round(e_max * 0.5, 1),
             "p_max_charge_mw": tal(r["lade"], f"tank række {raekke}, ladeeffekt") or 25.0,
             "p_max_discharge_mw": tal(r["aflade"], f"tank række {raekke}, afladeeffekt") or 25.0,
             "self_discharge_per_hour": 0.0005,
@@ -385,8 +518,11 @@ def laes_priser(sti: Path) -> tuple[dict, dict, dict]:
             return None
 
     navne = {"naturgas": "natural_gas", "halm": "straw", "flis": "flis",
-             "overskudsvarme": "waste_heat", "CO2-kvote": "co2_eua"}
-    enheder = {"co2_eua": "DKK/MWh_gas"}
+             "overskudsvarme": "waste_heat", "CO2": "co2_eua"}
+    # CO2 opgives pr. ton CO2. Modellen ganger selv med enhedens
+    # co2_emissions_per_mwh_fuel (0,2 t CO2 pr. MWh naturgas), så et tal pr.
+    # MWh gas her ville blive ganget med 0,2 én gang for meget.
+    enheder = {"co2_eua": "DKK/t_CO2"}
     priser = {}
     for i, (dansk, noegle) in enumerate(navne.items()):
         v = tal(celle(5 + i, 1), f"Priser: {dansk}")
@@ -478,7 +614,8 @@ def _rent(v):
     return v
 
 
-def skriv_yaml(sti: Path, d: dict, vaerk: str, kilde: Path, csv_sti: Path) -> None:
+def skriv_yaml(sti: Path, d: dict, vaerk: str, kilde: Path,
+               csv_sti: Path | None) -> None:
     import yaml
 
     d = _rent(d)
@@ -491,7 +628,7 @@ def skriv_yaml(sti: Path, d: dict, vaerk: str, kilde: Path, csv_sti: Path) -> No
 #
 # KØR:
 #   python run_case.py {sti.as_posix()} --data-source github \\
-#       --heat-csv {csv_sti.as_posix()}
+#       --heat-csv {csv_sti.as_posix() if csv_sti else "(ingen målt varmelast — se heat_load_params)"}
 #
 # Tidsvinduet nedenfor er sat af timedataens første og sidste time. Alt andet
 # stammer fra arkene Anlaeg og Priser.
@@ -537,8 +674,9 @@ def main() -> int:
         vaerk = meta["vaerk"] or a.ark.stem
         s = slug(vaerk)
         tz = laes_tidszone(a.ark)
+        aars_gwh = laes_aarsproduktion(a.ark)
         csv_sti, start, slut, aarsvolumen = laes_timedata(
-            a.ark, s, a.data_dir, a.overskriv, tz)
+            a.ark, s, a.data_dir, a.overskriv, tz, aars_gwh)
         units = laes_enheder(a.ark, priser)
         storage = laes_tanke(a.ark)
     except ArkFejl as e:
@@ -620,10 +758,19 @@ def main() -> int:
     skriv_yaml(yaml_sti, case, vaerk, a.ark, csv_sti)
 
     print(f"  Enheder: {len(units)} · tanke: {len(storage)}")
-    print(f"\nSkrevet:\n  {yaml_sti}\n  {csv_sti}\n")
-    print("Kør den med:\n"
-          f"  python run_case.py {yaml_sti.as_posix()} --data-source github \\\n"
-          f"      --heat-csv {csv_sti.as_posix()}\n")
+    if csv_sti is None:
+        print(f"\nSkrevet:\n  {yaml_sti}\n")
+        print("Kør den med:\n"
+              f"  python run_case.py {yaml_sti.as_posix()} --data-source github\n")
+        print("Der er INGEN målt varmelast i denne case. Varmen dannes af "
+              "heat_load_params ud fra DMI-vejrdata og den årsproduktion, der "
+              "stod i arket. Tallene viser, hvad anlægget kunne gøre på et "
+              "normalår — ikke hvad det gjorde.")
+    else:
+        print(f"\nSkrevet:\n  {yaml_sti}\n  {csv_sti}\n")
+        print("Kør den med:\n"
+              f"  python run_case.py {yaml_sti.as_posix()} --data-source github \\\n"
+              f"      --heat-csv {csv_sti.as_posix()}\n")
     print("Balancemarkedet er slået fra i den genererede case. Læs blokken øverst "
           "i filen, før du tilføjer det.")
     return 0
