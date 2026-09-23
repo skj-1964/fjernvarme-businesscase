@@ -1,0 +1,16 @@
+# Linjeskift normaliseres til LF i repoet, uanset hvilken maskine der gemmer.
+# Uden den her linje får du et diff, hvor hver eneste linje er ændret, første
+# gang en fil gemmes fra Windows.
+* text=auto eol=lf
+
+# Binære filer må git aldrig røre ved. Uden dem ville text=auto risikere at
+# "normalisere" indholdet af et regneark eller et billede og ødelægge filen.
+*.xlsx binary
+*.xlsm binary
+*.docx binary
+*.pptx binary
+*.pdf  binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.ico  binary
