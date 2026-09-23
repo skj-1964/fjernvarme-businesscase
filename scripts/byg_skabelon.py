@@ -447,6 +447,16 @@ for i, (felt, vaerdi, note) in enumerate([
 dropdown(ws, ["fyn", "vestkyst", "karup"], "B28", "DMI-område")
 dropdown(ws, ["DK1", "DK2"], "B29", "Priszone")
 
+# Skriver som standard skabelonen dér, hvor vaerksark_til_yaml.py's docstring
+# siger den ligger — doc/ i repoets rod, uanset hvor scriptet kaldes fra.
+# En sti kan gives som første argument.
 import sys
-wb.save(sys.argv[1] if len(sys.argv) > 1 else "/mnt/user-data/outputs/vaerksdata_skabelon.xlsx")
-print("skrevet")
+from pathlib import Path
+
+if len(sys.argv) > 1:
+    ud = Path(sys.argv[1])
+else:
+    ud = Path(__file__).resolve().parent.parent / "doc" / "vaerksdata_skabelon.xlsx"
+ud.parent.mkdir(parents=True, exist_ok=True)
+wb.save(ud)
+print(f"skrevet: {ud}")
