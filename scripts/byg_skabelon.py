@@ -515,11 +515,12 @@ sat(ws, "A19", "Tidsvarierende nettarif", H2)
 sat(ws, "A20",
     "De tre bånd står på dit netselskabs prisblad, typisk som lavlast, højlast "
     "og spidslast. Har dit selskab andre navne eller flere bånd, så skriv dem, "
-    "du har — resten kan stå tomme. Tidspunkterne er faste i modellen og "
+    "du har — resten kan stå tomme. Er satserne forskellige vinter og sommer, "
+    "så udfyld begge kolonner. Tidspunkterne er faste i modellen og "
     "følger inddelingen i noterne til højre. Bruger jeres netselskab andre "
     "tidspunkter — fx spidslast kl. 17–21 — så skriv jeres tidspunkter i "
     "mailen, når du sender arket.", BODY_I, wrap=True)
-ws.row_dimensions[20].height = 58
+ws.row_dimensions[20].height = 72
 header_raekke(ws, 21, ["bånd", "vinter (kr/MWh)", "sommer (kr/MWh)", "note"],
               [30, 16, 16, 48])
 for i, (navn, vinter, sommer, note) in enumerate([

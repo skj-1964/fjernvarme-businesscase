@@ -677,8 +677,14 @@ def laes_priser(sti: Path) -> tuple[dict, dict, dict]:
     dv = tal(celle(15, 1), "Priser: drift og vedligehold") or 0.0
     prod = tal(celle(16, 1), "Priser: produktionstarif") or 0.0
 
+    # Ét sæt tidsperioder (N1's inddeling, se byg_skabelon.py), men satserne
+    # må være forskellige vinter og sommer. Sommerens bånd får da egne navne
+    # (lav_sommer, hoej_sommer), så tarifmodulet slår den rigtige sats op.
+    # Før september 2026 gemte konverteringen kun én sats pr. båndnavn og
+    # brugte vintertallet hele året — arket spurgte om sommersatsen og
+    # smed svaret væk.
     baand_navne = ["lav", "hoej", "spids"]
-    vinter_v, sommer_v, bands = {}, {}, {}
+    vinter_v, sommer_v = {}, {}
     for i, b in enumerate(baand_navne):
         vi = tal(celle(21 + i, 1), f"Priser: {b}, vinter")
         so = tal(celle(21 + i, 2), f"Priser: {b}, sommer")
@@ -686,14 +692,38 @@ def laes_priser(sti: Path) -> tuple[dict, dict, dict]:
             vinter_v[b] = vi
         if so is not None:
             sommer_v[b] = so
-        if vi is not None or so is not None:
-            bands[b] = vi if vi is not None else so
-    if "lav" not in bands or "hoej" not in bands:
-        raise ArkFejl("Priser: lavlast og højlast skal begge udfyldes i "
-                      "tarifskemaet — mindst én af kolonnerne vinter og sommer.")
+    for b in ("lav", "hoej"):
+        if b not in vinter_v and b not in sommer_v:
+            raise ArkFejl("Priser: lavlast og højlast skal begge udfyldes i "
+                          "tarifskemaet — mindst én af kolonnerne vinter og sommer.")
+        # Mangler én sæson, gælder den anden hele året — og det siges.
+        if b not in vinter_v:
+            vinter_v[b] = sommer_v[b]
+            print(f"    Priser: {b} har kun sommersats; den bruges også om vinteren.")
+        if b not in sommer_v:
+            sommer_v[b] = vinter_v[b]
+    if "spids" in sommer_v:
+        print("    Priser: spidslast har en sommersats, men spidslast findes kun "
+              "på vinterhverdage i modellens tidsperioder. Sommersatsen bruges ikke.")
+    if "spids" not in vinter_v and "spids" in sommer_v:
+        print("    Priser: spidslast har kun en sommersats. Vinterhverdage kl. "
+              "06–21 regnes derfor som højlast.")
+
+    bands = {b: v for b, v in vinter_v.items()}
+    sommer_navn = {}
+    for b in ("lav", "hoej"):
+        if sommer_v[b] == vinter_v[b]:
+            sommer_navn[b] = b
+        else:
+            sommer_navn[b] = f"{b}_sommer"
+            bands[sommer_navn[b]] = sommer_v[b]
+    forskellige = [b for b in ("lav", "hoej") if sommer_navn[b] != b]
+    if forskellige:
+        print(f"    Priser: egne sommersatser for {', '.join(forskellige)} "
+              "(april–september).")
 
     vinter_spids = "spids" if "spids" in vinter_v else "hoej"
-    sommer_hoej = "hoej" if "hoej" in sommer_v else "hoej"
+    s_lav, s_hoej = sommer_navn["lav"], sommer_navn["hoej"]
     tarif = {
         "unit": "kr_per_mwh",
         "source": "Deltagerens eget prisblad, indtastet i vaerksdata_skabelon.xlsx",
@@ -709,18 +739,12 @@ def laes_priser(sti: Path) -> tuple[dict, dict, dict]:
                 },
                 "sommer": {
                     "months": [4, 5, 6, 7, 8, 9],
-                    "weekday": {"00-06": "lav", "06-24": sommer_hoej},
-                    "weekend": {"00-06": "lav", "06-24": "lav"},
+                    "weekday": {"00-06": s_lav, "06-24": s_hoej},
+                    "weekend": {"00-06": s_lav, "06-24": s_lav},
                 },
             },
         },
     }
-    uenige = [b for b in vinter_v if b in sommer_v and vinter_v[b] != sommer_v[b]]
-    if uenige:
-        print(f"    Båndene {', '.join(uenige)} har forskellig sats vinter og "
-              "sommer. Skemaet bruger ét sæt satser pr. båndnavn, og vintertallene "
-              "er brugt. Skal sommeren have egne satser, så tilføj bånd med andre "
-              "navne i casefilen.")
 
     omraade = str(celle(27, 1) or "").strip().lower()
     if omraade not in ("fyn", "vestkyst", "karup"):
