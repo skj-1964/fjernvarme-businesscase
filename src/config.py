@@ -330,35 +330,139 @@ class ReservationGate:
         return getattr(self, gate_key, None)
 
 
+def _interp_som_input(t_ambient, xp, fp):
+    """np.interp, der returnerer samme type som input.
+
+    DataArray beholder koordinater, Series beholder indeks, skalar giver float.
+    Uden for [xp[0], xp[-1]] holdes yderværdien (np.interp's egen adfærd).
+    """
+    vals = np.interp(np.asarray(t_ambient, dtype=float), xp, fp)
+    if hasattr(t_ambient, "dims"):                 # xr.DataArray
+        return t_ambient.copy(data=vals)
+    if hasattr(t_ambient, "index"):                # pd.Series
+        out = t_ambient.astype(float).copy()
+        out[:] = vals
+        return out
+    if np.ndim(vals) == 0:
+        return float(vals)
+    return vals
+
+
 @dataclass
 class COPCurve:
     """
-    COP(T_ambient) for varmepumper — lineær approksimation (trin 2).
+    Varmepumpens ydelse som funktion af udetemperaturen.
 
+    type 'linear' (trin 2, uændret):
         COP = clip(a + b·T_ambient,  cop_min, cop_max)
+        Varmeloftet er enhedens faste p_max_heat, og elforbruget er
+        varme/COP. Det giver et eloptag, der er størst i kulde — det
+        omvendte af en rigtig luft/vand-varmepumpe. Beholdt, så ældre
+        cases regner uændret.
 
-    a, b:       lineære koefficienter (a = COP ved T=0°C; b = d(COP)/dT)
-    cop_min:    nedre fysisk grænse (defrost-regime, typisk 1.6-2.0)
-    cop_max:    øvre fysisk grænse (typisk 3.8-4.2 for luft/vand)
-    type:       kun 'linear' understøttet i trin 2.
-                Forberedt til 'table' (tabel-interpolation) i trin 3.
+    type 'table' (september 2026, John/Billund):
+        points: målepunkter ved fuld last, hver med
+            t_ambient  udetemperatur (°C)
+            heat_mw    varmeproduktion (MW)
+            el_mw      eloptag (MW)
+        Varme og el interpoleres hver for sig lineært mellem punkterne, og
+        COP(T) = varme(T) / el(T). Uden for punkterne holdes yderværdien.
+        Varmeloftet bliver tidsvarierende: min(p_max_heat, varme(T)).
+        Billunds VP: -10 °C 12 MW / 5,0 MW, 0 °C 16 / 5,5, +16 °C 21 / 6,2.
+
+        Hvorfor ikke bare COP-punkter? Fordi fejlen i 'linear' ikke kun
+        var COP-niveauet, men at varmeloftet lå fast. Tabellen bærer begge
+        dele, og det er de tal, driften kan aflæse i SRO.
     """
     type: str = "linear"
     a: float = 2.2
     b: float = 0.08
     cop_min: float = 1.8
     cop_max: float = 4.0
+    points: Optional[list] = None
+
+    # Fysisk rimeligt interval for COP i et målepunkt. Et tal udenfor er
+    # næsten altid enheder byttet om (kW/MW) eller varme og el byttet om.
+    COP_PUNKT_MIN = 1.0
+    COP_PUNKT_MAX = 8.0
 
     def __post_init__(self):
-        if self.type != "linear":
+        if self.type == "linear":
+            if self.points is not None:
+                raise ValueError("COPCurve: 'points' gælder kun type 'table'.")
+            if self.cop_min <= 0 or self.cop_max <= self.cop_min:
+                raise ValueError(
+                    f"Ugyldige COP-grænser: cop_min={self.cop_min}, cop_max={self.cop_max}"
+                )
+            return
+        if self.type != "table":
             raise NotImplementedError(
                 f"COPCurve.type={self.type!r} ikke understøttet. "
-                f"Brug 'linear' (tabel kommer i trin 3)."
+                f"Brug 'linear' eller 'table'."
             )
-        if self.cop_min <= 0 or self.cop_max <= self.cop_min:
+        if not self.points or len(self.points) < 2:
             raise ValueError(
-                f"Ugyldige COP-grænser: cop_min={self.cop_min}, cop_max={self.cop_max}"
+                "COPCurve 'table' kræver mindst to målepunkter "
+                "(t_ambient, heat_mw, el_mw)."
             )
+        rens = []
+        for i, pkt in enumerate(self.points):
+            try:
+                t = float(pkt["t_ambient"])
+                q = float(pkt["heat_mw"])
+                e = float(pkt["el_mw"])
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"COPCurve punkt {i}: skal have t_ambient, heat_mw og el_mw "
+                    f"som tal — fik {pkt!r}"
+                ) from exc
+            if q <= 0 or e <= 0:
+                raise ValueError(
+                    f"COPCurve punkt {i} ({t} °C): varme og el skal være > 0, "
+                    f"fik {q} og {e} MW."
+                )
+            cop = q / e
+            if not self.COP_PUNKT_MIN <= cop <= self.COP_PUNKT_MAX:
+                raise ValueError(
+                    f"COPCurve punkt {i} ({t} °C): {q} MW varme / {e} MW el giver "
+                    f"COP {cop:.2f}. Det er uden for {self.COP_PUNKT_MIN}–"
+                    f"{self.COP_PUNKT_MAX} — er varme og el byttet om, eller "
+                    f"står et tal i kW?"
+                )
+            rens.append({"t_ambient": t, "heat_mw": q, "el_mw": e})
+        rens.sort(key=lambda p: p["t_ambient"])
+        temps = [p["t_ambient"] for p in rens]
+        if len(set(temps)) != len(temps):
+            raise ValueError(f"COPCurve: samme udetemperatur står to gange: {temps}")
+        self.points = rens
+
+    @property
+    def is_table(self) -> bool:
+        return self.type == "table"
+
+    def _xp(self):
+        return np.array([p["t_ambient"] for p in self.points])
+
+    def heat_capacity(self, t_ambient):
+        """Varmeloft (MW) ved fuld last. Kun 'table'; 'linear' har intet."""
+        if not self.is_table:
+            raise ValueError("heat_capacity findes kun for COPCurve type 'table'.")
+        return _interp_som_input(
+            t_ambient, self._xp(), np.array([p["heat_mw"] for p in self.points]))
+
+    def el_capacity(self, t_ambient):
+        """Eloptag (MW) ved fuld last. Kun 'table'."""
+        if not self.is_table:
+            raise ValueError("el_capacity findes kun for COPCurve type 'table'.")
+        return _interp_som_input(
+            t_ambient, self._xp(), np.array([p["el_mw"] for p in self.points]))
+
+    @property
+    def max_el_mw(self) -> float:
+        """Største eloptag i tabellen — øvre grænse for reservation."""
+        if not self.is_table:
+            raise ValueError("max_el_mw findes kun for COPCurve type 'table'.")
+        return max(p["el_mw"] for p in self.points)
 
     def evaluate(self, t_ambient):
         """
@@ -367,6 +471,8 @@ class COPCurve:
         Input: skalar, np.ndarray, pd.Series eller xr.DataArray (°C).
         Output: samme type, med samme koord/indeks som input.
         """
+        if self.is_table:
+            return self.heat_capacity(t_ambient) / self.el_capacity(t_ambient)
         cop = self.a + self.b * t_ambient
         # np.clip bevarer xarray/pandas-strukturen når input er DataArray/Series
         return np.clip(cop, self.cop_min, self.cop_max)

@@ -9,6 +9,11 @@ Skriver to filer ved siden af arket:
     cases/<slug>.yaml                  casefilen
     data/<slug>_abvaerk_hourly.csv     varmelasten fra arket Timedata
 
+Varmepumper læses fra arket Varmepumpe som målepunkter (udetemperatur,
+varme, el) og bliver en cop_curve af typen 'table' med et varmeloft, der
+følger udetemperaturen. Uden målepunkter bruges COP ved 0 °C fra Anlaeg og
+den gamle lineære kurve med fast varmeloft, og konverteringen siger det.
+
 Er arket Timedata tomt, men årsproduktionen i B3 udfyldt, skrives kun
 casefilen, og varmelasten syntetiseres af modellen ud fra DMI-vejrdata.
 
@@ -33,6 +38,7 @@ import unicodedata
 from datetime import timedelta
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 TYPER_UDEN_BRAENDSEL = {"heat_pump", "electric_boiler", "solar_thermal"}
@@ -251,8 +257,92 @@ def laes_timedata(sti: Path, slugnavn: str, ud_dir: Path, overskriv: bool,
     return ud, start, slut, aarsvolumen
 
 
+# --------------------------------------------------------------- varmepumpe
+# Arket Varmepumpe: overskrift i række 5, målepunkter fra række 6, kolonne
+# A-D (navn, udetemperatur, varmeproduktion, eloptag). Kolonne E er en
+# COP-formel til deltageren selv og læses ikke.
+VP_FOERSTE_RAEKKE = 6
+VP_MAKS_RAEKKER = 18          # række 6-23; noteboksen står i række 25
+VP_COP_MIN, VP_COP_MAX = 1.5, 6.0
+
+
+def laes_varmepumper(sti: Path) -> dict[str, list[dict]]:
+    """Målepunkter pr. varmepumpe, nøglet på slug(navn).
+
+    Et ark fra før v4 har ikke arket Varmepumpe. Så returneres {}, og
+    varmepumper falder tilbage på COP ved 0 °C i arket Anlaeg.
+    """
+    try:
+        df = pd.read_excel(sti, sheet_name="Varmepumpe", header=None,
+                           skiprows=VP_FOERSTE_RAEKKE - 1, usecols=range(4),
+                           nrows=VP_MAKS_RAEKKER)
+    except ValueError:
+        return {}
+    # Tomme kolonner i bunden af arket kan falde helt ud af indlæsningen.
+    df = df.reindex(columns=range(4))
+    df.columns = ["navn", "t", "varme", "el"]
+
+    tabeller: dict[str, list[dict]] = {}
+    for i, r in df.iterrows():
+        raekke = int(i) + VP_FOERSTE_RAEKKE
+        tom_navn = pd.isna(r["navn"]) or str(r["navn"]).strip() == ""
+        tal_felter = [r["t"], r["varme"], r["el"]]
+        if tom_navn and all(pd.isna(v) for v in tal_felter):
+            continue
+        if tom_navn:
+            raise ArkFejl(f"Varmepumpe række {raekke}: der står tal, men intet "
+                          "navn. Skriv varmepumpens navn, som det står i Anlaeg.")
+        felt = f"Varmepumpe række {raekke}"
+        t = tal(r["t"], f"{felt}, udetemperatur", kraev=True)
+        q = tal(r["varme"], f"{felt}, varmeproduktion", kraev=True)
+        e = tal(r["el"], f"{felt}, eloptag", kraev=True)
+        if not -30 <= t <= 40:
+            raise ArkFejl(f"{felt}: udetemperaturen {t} °C ser forkert ud.")
+        if q <= 0 or e <= 0:
+            raise ArkFejl(f"{felt}: varmeproduktion og eloptag skal begge være "
+                          "større end nul.")
+        cop = q / e
+        if not VP_COP_MIN <= cop <= VP_COP_MAX:
+            raise ArkFejl(
+                f"{felt}: {q:g} MW varme og {e:g} MW el giver COP {cop:.2f}. "
+                f"En luft/vand-varmepumpe ligger typisk på 2–4. Er varme og el "
+                "byttet om, eller står et af tallene i kW?")
+        tabeller.setdefault(slug(r["navn"]), []).append(
+            {"t_ambient": t, "heat_mw": q, "el_mw": e, "raekke": raekke})
+
+    for navn, pkt in tabeller.items():
+        temps = [p["t_ambient"] for p in pkt]
+        if len(pkt) < 2:
+            raise ArkFejl(
+                f"Varmepumpe: '{navn}' har kun ét målepunkt (række "
+                f"{pkt[0]['raekke']}). Der skal mindst to til — gerne en kold "
+                "dag, omkring 0 °C og en varm dag.")
+        if len(set(temps)) != len(temps):
+            raise ArkFejl(f"Varmepumpe: '{navn}' har samme udetemperatur to "
+                          f"gange ({sorted(temps)}).")
+        pkt.sort(key=lambda p: p["t_ambient"])
+        varme = [p["heat_mw"] for p in pkt]
+        if any(b < a for a, b in zip(varme, varme[1:])):
+            print(f"    Varmepumpe '{navn}': varmeproduktionen falder med "
+                  "stigende udetemperatur. For luft/vand er det normalt "
+                  "omvendt — tjek tallene.")
+    return tabeller
+
+
+def _vp_kurve(navn: str, punkter: list[dict]) -> tuple[dict, float, float]:
+    """cop_curve-blok, største varme og COP ved 0 °C for én varmepumpe."""
+    ren = [{k: round(p[k], 3) for k in ("t_ambient", "heat_mw", "el_mw")}
+           for p in punkter]
+    ts = [p["t_ambient"] for p in ren]
+    q0 = float(np.interp(0.0, ts, [p["heat_mw"] for p in ren]))
+    e0 = float(np.interp(0.0, ts, [p["el_mw"] for p in ren]))
+    return ({"type": "table", "points": ren},
+            max(p["heat_mw"] for p in ren), q0 / e0)
+
+
 # -------------------------------------------------------------------- anlæg
-def laes_enheder(sti: Path, priser: dict) -> dict:
+def laes_enheder(sti: Path, priser: dict,
+                 vp_tabeller: dict[str, list[dict]] | None = None) -> dict:
     df = pd.read_excel(sti, sheet_name="Anlaeg", skiprows=3, usecols=range(13), nrows=19)
     df.columns = ["navn", "type", "p_max", "p_min", "eta", "cop", "eta_el",
                   "var_om", "start_cost", "min_up", "min_down", "balance",
@@ -276,13 +366,44 @@ def laes_enheder(sti: Path, priser: dict) -> dict:
         u: dict = {
             "enabled": True,
             "type": type_,
-            "p_max_heat": tal(r["p_max"], f"række {raekke}, maks varme", kraev=True),
+            "p_max_heat": tal(r["p_max"], f"række {raekke}, maks varme",
+                              kraev=(type_ != "heat_pump")),
             "p_min_heat": tal(r["p_min"], f"række {raekke}, min varme") or 0.0,
             "var_om": tal(r["var_om"], f"række {raekke}, D&V") or 0.0,
             "start_cost": tal(r["start_cost"], f"række {raekke}, startomkostning") or 0.0,
             "min_uptime": int(tal(r["min_up"], f"række {raekke}, min driftstid") or 1),
             "min_downtime": int(tal(r["min_down"], f"række {raekke}, min stoptid") or 1),
         }
+        punkter = vp_tabeller.pop(navn, None) if vp_tabeller is not None else None
+        if type_ == "heat_pump" and punkter:
+            kurve, q_maks, cop0 = _vp_kurve(navn, punkter)
+            if u["p_max_heat"] is None:
+                u["p_max_heat"] = q_maks
+            elif u["p_max_heat"] < q_maks:
+                # Hvor varmt skal det være, før maks varme klipper tabellen?
+                # Varmen stiger med temperaturen, så første krydsning er grænsen.
+                ts = [p["t_ambient"] for p in punkter]
+                qs = [p["heat_mw"] for p in punkter]
+                graense = None
+                for (t0, q0), (t1, q1) in zip(zip(ts, qs), zip(ts[1:], qs[1:])):
+                    if q0 <= u["p_max_heat"] < q1:
+                        graense = t0 + (u["p_max_heat"] - q0) / (q1 - q0) * (t1 - t0)
+                        break
+                hvor = (f"over ca. {graense:.0f} °C" if graense is not None
+                        else "ved alle temperaturer")
+                print(f"\n    ADVARSEL række {raekke}: maks varme i Anlaeg er "
+                      f"{u['p_max_heat']:g} MW, men målepunkterne i arket "
+                      f"Varmepumpe når {q_maks:g} MW. Varmepumpen holdes på "
+                      f"{u['p_max_heat']:g} MW {hvor}. Er det en reel "
+                      "begrænsning (pumper, net), så lad det stå. Er det "
+                      "typeskiltets tal, så slet det i Anlaeg.\n")
+        elif type_ == "heat_pump" and u["p_max_heat"] is None:
+            andre = ", ".join(f"'{n}'" for n in (vp_tabeller or {}))
+            raise ArkFejl(
+                f"Række {raekke}: varmepumpen '{r['navn']}' har hverken maks "
+                "varme eller målepunkter i arket Varmepumpe."
+                + (f" Arket Varmepumpe har punkter for {andre} — står navnet "
+                   "ens i de to ark?" if andre else ""))
         if u["p_min_heat"] > u["p_max_heat"]:
             raise ArkFejl(f"Række {raekke}: min varme er større end maks varme.")
 
@@ -334,7 +455,21 @@ def laes_enheder(sti: Path, priser: dict) -> dict:
                 "Feltet gælder kun gasmotorer. For varmepumper regnes der på "
                 "COP, for elkedler på varme virkningsgrad.")
 
-        if type_ == "heat_pump":
+        if type_ == "heat_pump" and punkter:
+            # Målt ydelse: varmeloftet og COP følger udetemperaturen.
+            u["cop_curve"] = kurve
+            u["alpha"] = round(-1.0 / cop0, 4)
+            if tal(r["cop"], f"række {raekke}, COP") is not None:
+                print(f"    Række {raekke}: COP ved 0 °C bruges ikke — "
+                      "målepunkterne i arket Varmepumpe har forrang.")
+            print(f"    Række {raekke}: '{r['navn']}' fra {len(punkter)} "
+                  f"målepunkter, COP ved 0 °C {cop0:.2f}, maks varme "
+                  f"{u['p_max_heat']:g} MW")
+
+        elif type_ == "heat_pump":
+            print(f"    Række {raekke}: '{r['navn']}' har ingen målepunkter i "
+                  "arket Varmepumpe. Den regnes med COP ved 0 °C og et fast "
+                  "varmeloft, som overvurderer eloptaget i kulde.")
             cop = tal(r["cop"], f"række {raekke}, COP", kraev=True)
             if not 1.5 <= cop <= 6.0:
                 raise ArkFejl(
@@ -677,7 +812,14 @@ def main() -> int:
         aars_gwh = laes_aarsproduktion(a.ark)
         csv_sti, start, slut, aarsvolumen = laes_timedata(
             a.ark, s, a.data_dir, a.overskriv, tz, aars_gwh)
-        units = laes_enheder(a.ark, priser)
+        vp_tabeller = laes_varmepumper(a.ark)
+        units = laes_enheder(a.ark, priser, vp_tabeller)
+        if vp_tabeller:
+            raise ArkFejl(
+                "Arket Varmepumpe har målepunkter for "
+                + ", ".join(f"'{n}'" for n in vp_tabeller)
+                + ", men der er ingen varmepumpe med det navn i Anlaeg. "
+                "Navnet skal stå ens i de to ark, og typen skal være heat_pump.")
         storage = laes_tanke(a.ark)
     except ArkFejl as e:
         print(f"\nArket kan ikke bruges endnu:\n  {e}\n", file=sys.stderr)

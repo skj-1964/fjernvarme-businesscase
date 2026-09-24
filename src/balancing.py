@@ -165,6 +165,19 @@ def _eligible_units_for_market(cfg: CaseConfig, market: _MarketSpec) -> list[Uni
     return eligible
 
 
+def _p_el_max(unit: Unit, data: xr.Dataset) -> float:
+    """Største eloptag (MW), enheden kan have — øvre grænse for reservation.
+
+    Med en målt ydelsestabel er det tabellens største eloptag. Ellers den
+    gamle udledning p_max_heat / min COP, som med fast varmeloft giver det
+    største eloptag i den koldeste time.
+    """
+    if unit.cop_curve is not None and unit.cop_curve.is_table:
+        return float(unit.cop_curve.max_el_mw)
+    cop = _get_cop_series(unit, data)
+    return float(unit.p_max_heat / cop.min().item())
+
+
 def _get_cop_series(unit: Unit, data: xr.Dataset) -> xr.DataArray:
     """Hent COP(t) som xr.DataArray.
 
@@ -251,8 +264,7 @@ def _add_market_reserves(
     activation_revenue_terms = []
 
     for unit in eligible:
-        cop = _get_cop_series(unit, data)
-        p_el_max = float(unit.p_max_heat / cop.min().item())
+        p_el_max = _p_el_max(unit, data)
 
         var_name = f"{market.var_prefix}_{unit.name}"
         r = m.add_variables(
@@ -608,8 +620,7 @@ def _available_bid_capacity(cfg, market, eligible, data, caps) -> xr.DataArray:
     total = None
     lukket = None
     for unit in eligible:
-        cop = _get_cop_series(unit, data)
-        lofter = [float(unit.p_max_heat / cop.min().item())]
+        lofter = [_p_el_max(unit, data)]
         if caps is not None:
             pu = (caps.per_unit_mw or {}).get(unit.name)
             if pu is not None:

@@ -173,6 +173,26 @@ def build_model(cfg: CaseConfig, data: xr.Dataset) -> lp.Model:
             )
         else:
             p_max_2d[i, :] = unit.p_max_heat
+        # Varmepumpe med målt ydelsestabel: loftet følger udetemperaturen.
+        # Uden dette ligger varmeloftet fast, og elforbruget bliver størst i
+        # kulde — det omvendte af en rigtig luft/vand-varmepumpe (John, sept.
+        # 2026). p_max_heat bevares som ekstra loft (fx kondensator/net).
+        if unit.cop_curve is not None and unit.cop_curve.is_table:
+            if "t_ambient" not in data.data_vars:
+                raise ValueError(
+                    f"{u}: cop_curve 'table' kræver 't_ambient' i data."
+                )
+            loft = np.asarray(
+                unit.cop_curve.heat_capacity(data["t_ambient"]).values, dtype=float
+            )
+            if np.isnan(loft).any():
+                raise ValueError(
+                    f"{u}: varmeloftet fra COP-tabellen har "
+                    f"{int(np.isnan(loft).sum())} tomme timer — t_ambient "
+                    f"indeholder NaN. Temperaturen skal være fyldt, før modellen "
+                    f"bygges."
+                )
+            p_max_2d[i, :] = np.minimum(p_max_2d[i, :], loft)
     p_max = xr.DataArray(
         p_max_2d,
         coords=[("unit", unit_names), ("time", time_coord)],

@@ -1,6 +1,27 @@
 #!/usr/bin/env python3
-"""Bygger vaerksdata_skabelon.xlsx (v3).
+"""Bygger vaerksdata_skabelon.xlsx (v4).
 
+Ændringer fra v3 (gennemgang 24. september 2026, før mødet med Billund):
+  * Afleveringsfristen er en dato: onsdag 7. oktober, ikke "uge 41".
+  * DMI-område: ringsted er tilføjet til dropdown og hjælpetekst, så værker
+    øst for Storebælt har et område. KRÆVER, at sysapp og df-data har
+    området, og at config.KENDTE_DMI_OMRAADER og kontrollen i
+    vaerksark_til_yaml.py følger med — ellers afviser konverteringen arket.
+  * Tarif: arket siger nu, at båndenes tidspunkter er faste i modellen
+    (N1's inddeling), og beder om tidspunkterne i mailen, hvis netselskabet
+    bruger andre. Noterne pr. bånd beskriver de timer, konverteringen
+    faktisk bruger.
+  * Balancemarked: arket siger, at et 'ja' ved gasmotoren endnu ikke bruges.
+    balancing._eligible_units_for_market lader kun elforbrugende enheder byde.
+  * Eksempeltanken tank_lille er rettet fra 192 til 105 MWh, så begge
+    eksempeltanke passer med hjælpetekstens 30 K.
+  * NYT ark 'Varmepumpe' (Johns forslag): varmeproduktion og eloptag ved
+    fuld last ved to-tre udetemperaturer pr. varmepumpe. COP ved 0 °C i
+    Anlaeg!F er nu kun et nødtal, hvis arket er tomt, og maks varme må stå
+    tom for varmepumper med målepunkter. Eksemplet er skaleret fra Billunds
+    målte forhold (COP 2,4 / 2,9 / 3,4 ved -10 / 0 / +16 °C).
+
+Ændringer fra v2 til v3:
 Ændringer fra v2 (kollegernes tilbagemelding 17.-18. september 2026):
   * Timedata: årsproduktion ab værk i GWh/år som eget felt i B3. Feltet er
     altid påkrævet. Er der ingen timeserie, er det eneste, modellen har.
@@ -20,6 +41,8 @@ Bevarede cellepositioner (vaerksark_til_yaml.py afhænger af dem):
   Anlaeg: tankoverskrift i række 51, tanke i række 52-57, 5 kolonner.
   Priser: brændsler 6-10, faste led 14-17, bånd 22-24, B28/B29/B30.
 NYT felt: Timedata!B3.
+NYT ark (v4): Varmepumpe, overskrift i række 5, målepunkter fra række 6,
+  kolonne A-D (navn, udetemperatur, varme, el). E er en COP-formel.
 """
 
 from datetime import datetime, timedelta
@@ -118,19 +141,21 @@ opgaver = [
      "håndteres. Indsæt dem i arket 'Timedata'. Det er den ene ting med "
      "leveringstid — bestil den først."),
     ("2. Anlægsdata",
-     "Udfyld arket 'Anlaeg' med dine produktionsenheder og akkumuleringstanke."),
+     "Udfyld arket 'Anlaeg' med dine produktionsenheder og "
+     "akkumuleringstanke. Har I varmepumper, så udfyld også arket "
+     "'Varmepumpe'."),
     ("3. Priser og tarif",
      "Udfyld arket 'Priser'. Tarifbåndene står på dit netselskabs prisblad. "
      "Brændselspriserne er dine egne indkøbspriser ekskl. moms."),
     ("4. Send arket til mig",
-     "Send det udfyldte ark til mig senest i uge 41, så jeg kan kontrollere "
-     "det og bygge modelfilen inden kurset. Tag også filen med på dagen. Du "
-     "skal ikke installere noget."),
+     "Send det udfyldte ark til mig senest onsdag 7. oktober, så jeg kan "
+     "kontrollere det og bygge modelfilen inden kurset. Tag også filen med på "
+     "dagen. Du skal ikke installere noget."),
 ]
 for i, (hvad, tekst) in enumerate(opgaver, start=6):
     sat(ws, f"B{i}", hvad, BODY_B)
     sat(ws, f"C{i}", tekst, BODY, wrap=True)
-    ws.row_dimensions[i].height = 44
+    ws.row_dimensions[i].height = 58 if i == 6 else 44
 
 sat(ws, "B11", "Tidszone — læs det her, også selvom resten springes over", H2)
 sat(ws, "C12",
@@ -153,7 +178,7 @@ sat(ws, "C15",
     "ud.« Bed samtidig om den samlede årsproduktion ab værk i GWh — den skal "
     "stå i arket, uanset om timedataene kommer.",
     BODY, wrap=True)
-ws.row_dimensions[15].height = 58
+ws.row_dimensions[15].height = 86
 
 sat(ws, "B17", "Hvis varmeproduktionen har huller", H2)
 sat(ws, "C18",
@@ -166,26 +191,41 @@ sat(ws, "C18",
     "årsproduktionen alene; så er resultatet et regneeksempel og ikke jeres "
     "drift.",
     BODY, wrap=True)
-ws.row_dimensions[18].height = 58
+ws.row_dimensions[18].height = 86
 
-sat(ws, "B20", "Farvekoder", H2)
-sat(ws, "C21", "Gul celle = du skal udfylde den.", BODY).fill = UDFYLD
-sat(ws, "C22", "Grå række = eksempel. Slet den, eller skriv hen over den.", BODY).fill = EKSEMPEL
-sat(ws, "C23", "Blå tekst = tal, du selv taster.", INPUT_F)
-sat(ws, "C24", "Enhedstype, balancemarked, DMI-område og priszone har en "
+sat(ws, "B20", "Varmepumper — arket 'Varmepumpe'", H2)
+sat(ws, "C21",
+    "En luft/vand-varmepumpe leverer mindre varme, når det er koldt, og mere, "
+    "når det er lunt. Derfor beder vi ikke om ét tal, men om varmeproduktion "
+    "og eloptag ved fuld last ved to-tre udetemperaturer, fx en kold dag "
+    "(omkring −10 °C), omkring 0 °C og en varm dag (omkring +15 °C). Tallene "
+    "kan aflæses i SRO eller på databladet. Modellen regner selv COP ud. "
+    "Navnet skal stå præcis som i arket Anlaeg. Når arket Varmepumpe er "
+    "udfyldt, skal maks varme og COP i Anlaeg stå tomme for varmepumpen — "
+    "udfyld kun maks varme, hvis noget andet end varmepumpen selv begrænser "
+    "varmen, fx pumper eller nettilslutning. Ellers klipper tallet toppen af "
+    "sommerydelsen, uden at resultatet ser forkert ud.",
+    BODY, wrap=True)
+ws.row_dimensions[21].height = 114
+
+sat(ws, "B23", "Farvekoder", H2)
+sat(ws, "C24", "Gul celle = du skal udfylde den.", BODY).fill = UDFYLD
+sat(ws, "C25", "Grå række = eksempel. Slet den, eller skriv hen over den.", BODY).fill = EKSEMPEL
+sat(ws, "C26", "Blå tekst = tal, du selv taster.", INPUT_F)
+sat(ws, "C27", "Enhedstype, balancemarked, DMI-område og priszone har en "
                "dropdown — klik i cellen, og brug pilen til højre. Vises pilen "
                "ikke i din Excel, så skriv værdien af præcis som i listen under "
                "skemaet.", BODY, wrap=True)
-ws.row_dimensions[24].height = 42
+ws.row_dimensions[27].height = 42
 
-sat(ws, "B26", "Hvad du IKKE skal udfylde", H2)
-sat(ws, "C27",
+sat(ws, "B29", "Hvad du IKKE skal udfylde", H2)
+sat(ws, "C30",
     "Elspotpriser, balancemarkedspriser og vejrdata henter modellen selv. Du "
     "skal hverken have en Energinet-konto eller en API-nøgle.", BODY, wrap=True)
-ws.row_dimensions[27].height = 28
+ws.row_dimensions[30].height = 28
 
-sat(ws, "B29", "Spørgsmål inden dagen", H2)
-sat(ws, "C30", "Steen Kramer Jensen, chefkonsulent, Dansk Fjernvarme. "
+sat(ws, "B32", "Spørgsmål inden dagen", H2)
+sat(ws, "C33", "Steen Kramer Jensen, chefkonsulent, Dansk Fjernvarme. "
               "skj@danskfjernvarme.dk", BODY)
 
 # ==============================================================================
@@ -252,7 +292,7 @@ kol = ["navn", "type", "maks varme (MW)", "min varme (MW)",
 header_raekke(ws, 4, kol, [18, 17, 13, 13, 12, 12, 13, 14, 13, 12, 12, 16, 17])
 
 eks = [
-    ["varmepumpe",     "heat_pump",      3.4,  0.0, None, 3.1, None,  30.0,    0,  1, 1, "ja",  None],
+    ["varmepumpe",     "heat_pump",      None, 0.0, None, None, None,  30.0,    0,  1, 1, "ja",  None],
     ["elkedel",        "electric_boiler", 4.0, 0.0, 0.99, None, None, 10.0,    0,  1, 1, "ja",  None],
     ["halmkedel",      "biomass_boiler", 12.0, 4.0, 0.96, None, None, 30.0, 8000,  4, 6, "nej", None],
     ["gaskedel",       "gas_boiler",     20.0, 0.0, 0.95, None, None, 15.0,  500,  1, 1, "nej", None],
@@ -278,10 +318,10 @@ sat(ws, "A26", "Lovlige værdier i kolonne 'type' (også i dropdown)", H2)
 for i, t in enumerate(ENHEDSTYPER):
     sat(ws, f"A{27 + i}", t, MONO, NOTE_FILL, border=True)
 forklar_type = [
-    "Varmepumpe, luft/vand. Udfyld COP ved 0 °C; modellen bygger selv kurven "
-    "over året. Elvirkningsgrad skal ikke udfyldes. Har I en anden kilde end "
-    "luft — grundvand, spildevand, sø — så skriv det i mailen; kurven skal "
-    "sættes anderledes op.",
+    "Varmepumpe. Udfyld arket 'Varmepumpe' med varmeproduktion og eloptag ved "
+    "to-tre udetemperaturer, og lad maks varme og COP stå tomme her. "
+    "Elvirkningsgrad skal ikke udfyldes. Har I en anden kilde end luft — "
+    "grundvand, spildevand, sø — så skriv det i mailen.",
     "Elkedel. Udfyld varme virkningsgrad (MWh varme pr. MWh el, typisk 0,98–0,99).",
     "Halm- eller fliskedel. Brændslet vælges efter, hvilken pris du har udfyldt.",
     "Gaskedel.",
@@ -296,22 +336,30 @@ for i, tekst in enumerate(forklar_type):
 
 sat(ws, "A35", "Kolonnen 'kan byde i balancemarked': skriv  ja  eller  nej", H2)
 sat(ws, "C35", "Kun 'ja', hvis enheden faktisk er prækvalificeret hos Energinet. "
-               "Er I i tvivl, så skriv nej.", BODY, wrap=True)
+               "Er I i tvivl, så skriv nej. I dag byder modellen kun med "
+               "varmepumper og elkedler. Et 'ja' ved en gasmotor bliver gemt, "
+               "men bruges ikke endnu.", BODY, wrap=True)
+ws.row_dimensions[35].height = 42
 
 sat(ws, "A37", "Hvad de øvrige felter betyder", H2)
 felter = [
     ("maks varme (MW)", "Enhedens største varmeeffekt ifølge typeskiltet — "
                         "den effekt, den kan levere til nettet ved fuld last. "
                         "Modellen bruger det som et loft, ikke som et mål. "
-                        "Se boksen nedenfor om solvarme."),
+                        "Varmepumper: lad feltet stå tomt, når arket "
+                        "'Varmepumpe' er udfyldt. Udfyld det kun, hvis noget "
+                        "andet end varmepumpen selv begrænser varmen — ellers "
+                        "klipper det sommerydelsen. Se boksen nedenfor om solvarme."),
     ("min varme (MW)", "Laveste stabile last, når enheden kører. 0, hvis den "
                        "kan regulere helt ned. Bruges kun, når enheden har en "
                        "min driftstid over 1 time eller en min varme over 0."),
     ("varme virkningsgrad", "MWh varme pr. MWh brændsel. Fx 0,95 — ikke 95. "
                             "Kræves for kedler, gasmotor og overskudsvarme. "
                             "For elkedler er 'brændslet' el, typisk 0,98–0,99."),
-    ("COP ved 0 °C", "Kun varmepumper. Årsvirkningsgraden skal IKKE bruges her "
-                     "— modellen regner selv COP op og ned med udetemperaturen."),
+    ("COP ved 0 °C", "Kun varmepumper, og kun hvis I ikke kan udfylde arket "
+                     "'Varmepumpe'. Årsvirkningsgraden skal IKKE bruges her. "
+                     "Med kun dette tal regner modellen med fast varmeeffekt "
+                     "hele året, og det er mindre præcist."),
     ("elvirkningsgrad", "Kun gasmotor: MWh el pr. MWh brændsel, fx 0,41. "
                         "Sammen med varme virkningsgraden giver den "
                         "el-til-varme-forholdet, modellen regner med. Lad "
@@ -348,7 +396,7 @@ header_raekke(ws, 51, ["tank", "volumen (m³)", "maks fyldning (MWh)",
                        "maks ladeeffekt (MW)", "maks afladeeffekt (MW)"],
               [18, 16, 20, 18, 18])
 for i, raekke in enumerate([["tank_stor", 7000, 244.0, 25.0, 25.0],
-                            ["tank_lille", 3000, 192.0, 25.0, 25.0]], start=52):
+                            ["tank_lille", 3000, 105.0, 25.0, 25.0]], start=52):
     for j, v in enumerate(raekke, start=1):
         c = ws.cell(row=i, column=j, value=v)
         c.font, c.fill, c.border = INPUT_F, EKSEMPEL, BOX
@@ -369,7 +417,59 @@ sat(ws, "A59",
 ws.row_dimensions[59].height = 46
 
 # ==============================================================================
-# ARK 4 — PRISER
+# ARK 4 — VARMEPUMPE
+# ==============================================================================
+ws = wb.create_sheet("Varmepumpe")
+sat(ws, "A1", "Varmepumper — ydelse ved forskellige udetemperaturer", H1)
+ws.merge_cells("A2:E2")
+sat(ws, "A2",
+    "En luft/vand-varmepumpe leverer mere varme, når det er lunt, og mindre, "
+    "når det er koldt. Skriv derfor, hvad varmepumpen leverer i varme og "
+    "trækker i el ved fuld last ved mindst to udetemperaturer — gerne tre: en "
+    "kold dag (omkring −10 °C), omkring 0 °C og en varm dag (omkring +15 °C). "
+    "Tallene kan aflæses i SRO eller på databladet. Modellen regner selv COP "
+    "ud og regner mellem punkterne.", BODY_I, wrap=True)
+ws.row_dimensions[2].height = 72
+ws.merge_cells("A3:E3")
+sat(ws, "A3",
+    "Én række pr. målepunkt. Navnet skal stå præcis som i arket Anlaeg. Har I "
+    "flere varmepumper, så giv hver sine rækker. Grå rækker er eksempel — "
+    "slet dem, eller skriv hen over.", BODY_I, wrap=True)
+ws.row_dimensions[3].height = 36
+
+header_raekke(ws, 5, ["navn", "udetemperatur (°C)", "varmeproduktion (MW)",
+                      "eloptag (MW)", "COP (regnes selv)"],
+              [18, 16, 20, 14, 16])
+vp_eks = [["varmepumpe", -10, 3.0, 1.25],
+          ["varmepumpe", 0, 4.0, 1.38],
+          ["varmepumpe", 16, 5.2, 1.53]]
+for r in range(6, 24):
+    eksempel = r < 6 + len(vp_eks)
+    for j in range(1, 5):
+        c = ws.cell(row=r, column=j,
+                    value=vp_eks[r - 6][j - 1] if eksempel else None)
+        c.font, c.border = INPUT_F, BOX
+        c.fill = EKSEMPEL if eksempel else UDFYLD
+        if j in (3, 4):
+            c.number_format = "0.00"
+    c = ws.cell(row=r, column=5,
+                value=f'=IF(AND(ISNUMBER(C{r}),ISNUMBER(D{r}),D{r}>0),C{r}/D{r},"")')
+    c.font, c.border = BODY, BOX
+    c.number_format = "0.00"
+
+ws.merge_cells("A25:E26")
+sat(ws, "A25",
+    "Tjek COP i kolonne E. En luft/vand-varmepumpe ligger typisk på 2–4, "
+    "lavest i kulde. Står der et tal langt fra det, er varme og el byttet om, "
+    "eller et af tallene står i kW. Eksemplet viser et typisk forløb: varmen "
+    "stiger fra 3,0 til 5,2 MW fra frost til sommer, mens eloptaget kun stiger "
+    "lidt.", BODY, NOTE_FILL, wrap=True)
+ws.row_dimensions[25].height = 30
+ws.row_dimensions[26].height = 30
+ws.freeze_panes = "A6"
+
+# ==============================================================================
+# ARK 5 — PRISER
 # ==============================================================================
 ws = wb.create_sheet("Priser")
 ws.sheet_view.showGridLines = False
@@ -415,27 +515,34 @@ sat(ws, "A19", "Tidsvarierende nettarif", H2)
 sat(ws, "A20",
     "De tre bånd står på dit netselskabs prisblad, typisk som lavlast, højlast "
     "og spidslast. Har dit selskab andre navne eller flere bånd, så skriv dem, "
-    "du har — resten kan stå tomme.", BODY_I, wrap=True)
-ws.row_dimensions[20].height = 30
+    "du har — resten kan stå tomme. Tidspunkterne er faste i modellen og "
+    "følger inddelingen i noterne til højre. Bruger jeres netselskab andre "
+    "tidspunkter — fx spidslast kl. 17–21 — så skriv jeres tidspunkter i "
+    "mailen, når du sender arket.", BODY_I, wrap=True)
+ws.row_dimensions[20].height = 58
 header_raekke(ws, 21, ["bånd", "vinter (kr/MWh)", "sommer (kr/MWh)", "note"],
               [30, 16, 16, 48])
 for i, (navn, vinter, sommer, note) in enumerate([
-    ("lavlast", 7.4, 7.4, "Typisk kl. 00–06 alle dage."),
-    ("højlast", 14.8, 14.8, "Vinter aften og hele sommerdagen."),
-    ("spidslast", 29.5, None, "Kun vinter, typisk kl. 06–21 på hverdage. Har I "
-                              "ikke spidslast om sommeren, så lad cellen stå tom."),
+    ("lavlast", 7.4, 7.4, "Kl. 00–06 alle dage. Om sommeren (april–september) "
+                          "også hele weekenden."),
+    ("højlast", 14.8, 14.8, "Vinter (oktober–marts): kl. 21–24 på hverdage og "
+                            "kl. 06–24 i weekenden. Sommer: kl. 06–24 på hverdage."),
+    ("spidslast", 29.5, None, "Kun vinterhverdage kl. 06–21. Har I ikke "
+                              "spidslast om sommeren, så lad cellen stå tom."),
 ], start=22):
     sat(ws, f"A{i}", navn, BODY, border=True)
     for kolonne, v in (("B", vinter), ("C", sommer)):
         sat(ws, f"{kolonne}{i}", v, INPUT_F, UDFYLD, border=True).number_format = "#,##0.00"
     sat(ws, f"D{i}", note, BODY_I, wrap=True, border=True)
-ws.row_dimensions[24].height = 30
+for r in (22, 23, 24):
+    ws.row_dimensions[r].height = 30
 
 sat(ws, "A26", "Vejrstation, priszone og værkets navn", H2)
 header_raekke(ws, 27, ["felt", "værdi", "", "note"], [30, 16, 12, 48])
 for i, (felt, vaerdi, note) in enumerate([
     ("nærmeste DMI-område", "karup",
-     "Skriv præcis én af:  fyn   vestkyst   karup"),
+     "Skriv præcis én af:  fyn   vestkyst   karup   ringsted. Vælg det "
+     "område, der ligger nærmest værket. Øst for Storebælt: ringsted."),
     ("priszone", "DK1", "Skriv  DK1  vest for Storebælt, ellers  DK2"),
     ("værkets navn", "Andeby Fjernvarme", "Bruges som filnavn for din modelfil."),
 ], start=28):
@@ -444,7 +551,11 @@ for i, (felt, vaerdi, note) in enumerate([
     sat(ws, f"C{i}", "", BODY, border=True)
     sat(ws, f"D{i}", note, BODY_I, border=True)
 
-dropdown(ws, ["fyn", "vestkyst", "karup"], "B28", "DMI-område")
+ws["D28"].alignment = Alignment(wrap_text=True, vertical="top")
+ws.row_dimensions[28].height = 30
+
+DMI_OMRAADER = ["fyn", "vestkyst", "karup", "ringsted"]
+dropdown(ws, DMI_OMRAADER, "B28", "DMI-område")
 dropdown(ws, ["DK1", "DK2"], "B29", "Priszone")
 
 # Skriver som standard skabelonen dér, hvor vaerksark_til_yaml.py's docstring
