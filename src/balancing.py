@@ -264,6 +264,7 @@ def _add_market_reserves(
     activation_revenue_terms = []
 
     for unit in eligible:
+        cop = _get_cop_series(unit, data)       # bruges i varmereduktionen nedenfor
         p_el_max = _p_el_max(unit, data)
 
         var_name = f"{market.var_prefix}_{unit.name}"
