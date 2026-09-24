@@ -4,10 +4,16 @@ vaerksark_til_yaml.py — deltagerens udfyldte Excelark til en gyldig casefil.
 
     python scripts/vaerksark_til_yaml.py mit_vaerk.xlsx
 
-Skriver to filer ved siden af arket:
+Skriver som standard i den git-ignorerede mappe deltagere/:
 
-    cases/<slug>.yaml                  casefilen
-    data/<slug>_abvaerk_hourly.csv     varmelasten fra arket Timedata
+    deltagere/cases/<slug>.yaml                  casefilen
+    deltagere/data/<slug>_abvaerk_hourly.csv     varmelasten fra arket Timedata
+
+Et værks timedata må ikke ende i det offentlige repo. Scriptet stopper derfor,
+hvis det skulle skrive en fil — eller læse arket — et sted inde i repoet, som
+git ikke ignorerer. Læg arket i deltagere/ (eller uden for repoet).
+--tillad-offentlig slår vagten fra; den er til egne referencecases som Andeby,
+aldrig til en deltagers data.
 
 Varmepumper læses fra arket Varmepumpe som målepunkter (udetemperatur,
 varme, el) og bliver en cop_curve af typen 'table' med et varmeloft, der
@@ -19,8 +25,8 @@ casefilen, og varmelasten syntetiseres af modellen ud fra DMI-vejrdata.
 
 og kører derefter:
 
-    python run_case.py cases/<slug>.yaml --data-source github \
-        --heat-csv data/<slug>_abvaerk_hourly.csv
+    python run_case.py deltagere/cases/<slug>.yaml --data-source github \
+        --heat-csv deltagere/data/<slug>_abvaerk_hourly.csv
 
 Scriptet SKRIVER ALDRIG hen over en eksisterende fil uden --overskriv, og det
 stopper højlydt på alt, det ikke kan tolke. En case, der bygger på et ark med
@@ -33,6 +39,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import subprocess
 import sys
 import unicodedata
 from datetime import timedelta
@@ -789,12 +796,60 @@ def skriv_yaml(sti: Path, d: dict, vaerk: str, kilde: Path,
                        default_flow_style=False, width=88)
 
 
+# --------------------------------------------------------- vagt mod læk (K9)
+def _git_top(sti: Path) -> Path | None:
+    """Rod for den git-arbejdskopi, stien ligger i — eller None."""
+    forfader = sti.resolve()
+    while not forfader.exists():
+        forfader = forfader.parent
+    if forfader.is_file():
+        forfader = forfader.parent
+    try:
+        r = subprocess.run(["git", "-C", str(forfader), "rev-parse",
+                            "--show-toplevel"], capture_output=True, text=True)
+    except FileNotFoundError:                       # git ikke installeret
+        return None
+    return Path(r.stdout.strip()) if r.returncode == 0 else None
+
+
+def kan_komme_med_i_git(sti: Path) -> bool:
+    """True, hvis stien ligger i en git-arbejdskopi og IKKE er ignoreret.
+
+    Uden for et repo kan intet ryge med i et commit. Inde i et repo afgør
+    git check-ignore det: 0 = ignoreret, 1 = ikke ignoreret. Alt andet (fx en
+    ødelagt .gitignore) behandles som risiko — vagten fejler i den sikre
+    retning.
+    """
+    top = _git_top(sti)
+    if top is None:
+        return False
+    r = subprocess.run(["git", "-C", str(top), "check-ignore", "-q",
+                        str(sti.resolve())], capture_output=True)
+    return r.returncode != 0
+
+
+def tjek_ingen_laek(stier: list[tuple[str, Path]]) -> None:
+    aabne = [(hvad, s) for hvad, s in stier if kan_komme_med_i_git(s)]
+    if not aabne:
+        return
+    linjer = "\n".join(f"    {hvad}: {s}" for hvad, s in aabne)
+    raise ArkFejl(
+        "Deltagerdata må ikke ligge et sted, hvor git kan få dem med i et "
+        "commit til det offentlige repo:\n" + linjer + "\n"
+        "  Læg arket i deltagere/ og brug standardmapperne (udelad --cases-dir "
+        "og --data-dir). Er det en egen referencecase og ikke en deltagers "
+        "data, så brug --tillad-offentlig.")
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("ark", type=Path, help="Den udfyldte vaerksdata_skabelon.xlsx")
-    p.add_argument("--cases-dir", type=Path, default=Path("cases"))
-    p.add_argument("--data-dir", type=Path, default=Path("data"))
+    p.add_argument("--cases-dir", type=Path, default=Path("deltagere/cases"))
+    p.add_argument("--data-dir", type=Path, default=Path("deltagere/data"))
+    p.add_argument("--tillad-offentlig", action="store_true",
+                   help="Slå vagten mod deltagerdata i git fra. Kun til egne "
+                        "referencecases, aldrig til en deltagers data.")
     p.add_argument("--overskriv", action="store_true",
                    help="Erstat filer, der allerede findes.")
     a = p.parse_args()
@@ -808,6 +863,14 @@ def main() -> int:
         priser, el, meta = laes_priser(a.ark)
         vaerk = meta["vaerk"] or a.ark.stem
         s = slug(vaerk)
+        # Før noget som helst skrives: kan arket eller output ryge med i git?
+        if not a.tillad_offentlig:
+            tjek_ingen_laek([
+                ("arket", a.ark),
+                ("casefil", a.cases_dir / f"{s}.yaml"),
+                ("timedata", a.data_dir / f"{s}_abvaerk_hourly.csv"),
+                ("profiler", a.data_dir / f"{s}_solvarme_profil.csv"),
+            ])
         tz = laes_tidszone(a.ark)
         aars_gwh = laes_aarsproduktion(a.ark)
         csv_sti, start, slut, aarsvolumen = laes_timedata(

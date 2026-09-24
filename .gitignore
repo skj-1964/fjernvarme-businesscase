@@ -49,6 +49,14 @@ data/private/
 *.local.yaml
 *.local.csv
 
+# --- Deltagerdata (kursus 22. oktober 2026) ------------------------------------
+# Deltagernes udfyldte ark, casefiler og timedata. Et værks timedata og
+# anlægsoplysninger må aldrig ende i det offentlige repo. vaerksark_til_yaml.py
+# skriver hertil som standard og nægter at skrive — eller læse et ark — et sted,
+# hvor git kan få filen med (K9, september 2026). Slet ikke denne linje, uden
+# at konverteringens vagt også ændres.
+/deltagere/
+
 # --- Noter og gate-rapporter ---------------------------------------------------
 # noter/ er som UDGANGSPUNKT ignoreret, fordi mappen også rummer Billunds
 # kommercielle afregningsdata (`billund_balance_facit_*.csv` — faktiske
