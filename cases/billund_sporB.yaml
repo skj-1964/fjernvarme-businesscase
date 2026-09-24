@@ -133,21 +133,27 @@ units:
   vp_luft_vand:
     enabled: true
     type: "heat_pump"
-    p_max_heat: 16.0
+    # Loft på varmesiden = tabellens største varme; timeloftet følger
+    # udetemperaturen via cop_curve nedenfor.
+    p_max_heat: 21.0
     p_min_heat: 0.0
-    alpha: -0.333
+    alpha: -0.3438          # -1/COP ved 0 °C; fallback, bruges ikke
     fuel: "electricity"
     var_om: 13.4
     start_cost: 0.0
     min_uptime: 1
     min_downtime: 1
     uc_enabled: false
+    # Ydelse ved fuld last (John, september 2026). Varme og el interpoleres
+    # hver for sig; COP = varme/el; uden for punkterne holdes yderværdien.
+    # Afløser den lineære kurve (fast varmeloft, COP 1,8–4,0), som gav
+    # størst eloptag i frost — det omvendte af en luft/vand-varmepumpe.
     cop_curve:
-      type: linear
-      a: 2.2
-      b: 0.08
-      cop_min: 1.8
-      cop_max: 4.0
+      type: table
+      points:
+        - { t_ambient:  -10.0, heat_mw: 12.0, el_mw: 5.0 }   # COP 2.40
+        - { t_ambient:    0.0, heat_mw: 16.0, el_mw: 5.5 }   # COP 2.91
+        - { t_ambient:   16.0, heat_mw: 21.0, el_mw: 6.2 }   # COP 3.39
     ancillary:
       afrr_qualified: true
       mfrr_qualified: true
@@ -358,8 +364,15 @@ balancing:
   #     reservationen i få, dyre timer (8–16 MW) — Billund bød ≤ 2,8/3,7 MW
   #     i juni (STATUS_session29).
   #
-  # Mod facit (FORB Op), 2.3.–30.6.2026: aFRR 102 %, mFRR 130 %, i alt
-  # 117 % (objektiv 4.485.617, gap 0,34 %). Se STATUS_session29.
+  # Mod facit (FORB Op), 2.3.–30.6.2026, med den GAMLE lineære VP-kurve:
+  # aFRR 102 %, mFRR 130 %, i alt 117 % (objektiv 4.485.617, gap 0,34 %).
+  # Regnet ex post (compare.py, diag_session28 — ligger ikke i repoet).
+  # Se STATUS_session29.
+  #
+  # Med VP-tabellen (september 2026): objektiv 3.964.586 (gap 0,15 %). Ex
+  # post-tallet er IKKE genberegnet. scripts/capture_rate.py, som bruger
+  # modellens forventede aktivering og ikke den realiserede, giver 118 %
+  # (gammel VP) og 119 % (ny VP) — samme total, anden fordeling på marked.
   #
   # BEMÆRK: manifest og sammendrag viser med foresight: profile FORVENTEDE
   # aktiveringstal. Den realiserede værdi af den valgte reservation regnes

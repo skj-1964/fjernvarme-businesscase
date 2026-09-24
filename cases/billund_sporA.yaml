@@ -127,21 +127,27 @@ units:
   vp_luft_vand:
     enabled: true
     type: "heat_pump"
-    p_max_heat: 16.0
+    # Loft på varmesiden = tabellens største varme; timeloftet følger
+    # udetemperaturen via cop_curve nedenfor.
+    p_max_heat: 21.0
     p_min_heat: 0.0
-    alpha: -0.333
+    alpha: -0.3438          # -1/COP ved 0 °C; fallback, bruges ikke
     fuel: "electricity"
     var_om: 13.4
     start_cost: 0.0
     min_uptime: 1
     min_downtime: 1
     uc_enabled: false
+    # Ydelse ved fuld last (John, september 2026). Varme og el interpoleres
+    # hver for sig; COP = varme/el; uden for punkterne holdes yderværdien.
+    # Afløser den lineære kurve (fast varmeloft, COP 1,8–4,0), som gav
+    # størst eloptag i frost — det omvendte af en luft/vand-varmepumpe.
     cop_curve:
-      type: linear
-      a: 2.2
-      b: 0.08
-      cop_min: 1.8
-      cop_max: 4.0
+      type: table
+      points:
+        - { t_ambient:  -10.0, heat_mw: 12.0, el_mw: 5.0 }   # COP 2.40
+        - { t_ambient:    0.0, heat_mw: 16.0, el_mw: 5.5 }   # COP 2.91
+        - { t_ambient:   16.0, heat_mw: 21.0, el_mw: 6.2 }   # COP 3.39
     ancillary:
       afrr_qualified: true
       mfrr_qualified: true

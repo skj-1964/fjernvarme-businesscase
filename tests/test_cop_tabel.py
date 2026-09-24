@@ -117,8 +117,8 @@ def _andeby_kort(kurve: COPCurve | None, p_max_heat: float = 5.0):
     cfg.units["solvarme"].enabled = False      # kræver profil-CSV
     vp = cfg.units["vp_luft_vand"]
     vp.p_max_heat = p_max_heat
-    if kurve is not None:
-        vp.cop_curve = kurve
+    # Andeby har selv en tabel fra september 2026; None = den gamle lineære.
+    vp.cop_curve = kurve if kurve is not None else COPCurve()
     data = generate_dummy_data(cfg)
     data["t_ambient"] = ("time", np.array([-20.0, -10.0, -5.0, 0.0, 16.0, 30.0]))
     return cfg, data
