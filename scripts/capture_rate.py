@@ -18,6 +18,7 @@ mar–apr): --window 2026.03,2026.04
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import sys
 from pathlib import Path
 
@@ -52,6 +53,12 @@ def main():
     ap.add_argument("--facit", required=True)
     ap.add_argument("--start", required=True)
     ap.add_argument("--end", required=True)
+    ap.add_argument("--ex-post", action="store_true",
+                    help="Værdisæt modellens reservation med den REALISEREDE "
+                         "aktivering (foresight=realized), uanset casens "
+                         "foresight. Det er sådan Spor B's 117 %% blev regnet "
+                         "(compare.py, session 28). Uden flaget bruges casens "
+                         "egen foresight — med 'profile' er det FORVENTEDE tal.")
     ap.add_argument("--window", default=None,
                     help="kommasepareret liste af måneder (fx 2026.03,2026.04) — "
                          "begræns sammenligning til dette delvindue")
@@ -64,6 +71,13 @@ def main():
     result = xr.open_dataset(nc)
 
     cfg = load_case(args.case)
+    if args.ex_post and cfg.activation is not None:
+        # Reservationen er besluttet på forventet aktivering (profile); ex post
+        # afregnes den med det, der faktisk skete. compare.py (session 28) gjorde
+        # det samme i 15-min opløsning: Σ 0,25·f(τ)·r·p(τ) = r·av_payment(t),
+        # fordi r er konstant i timen.
+        cfg.activation = dataclasses.replace(cfg.activation, foresight="realized")
+        print("Ex post: aktivering værdisat med realiseret udfald (foresight=realized)")
     cfg.time.start = f"{args.start}T00:00:00Z"
     cfg.time.end = f"{args.end}T23:00:00Z"
     heat_load = load_heat_load_params(args.case)

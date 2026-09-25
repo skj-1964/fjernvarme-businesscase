@@ -364,15 +364,21 @@ balancing:
   #     reservationen i få, dyre timer (8–16 MW) — Billund bød ≤ 2,8/3,7 MW
   #     i juni (STATUS_session29).
   #
-  # Mod facit (FORB Op), 2.3.–30.6.2026, med den GAMLE lineære VP-kurve:
-  # aFRR 102 %, mFRR 130 %, i alt 117 % (objektiv 4.485.617, gap 0,34 %).
-  # Regnet ex post (compare.py, diag_session28 — ligger ikke i repoet).
-  # Se STATUS_session29.
+  # Mod facit (FORB Op), 2.3.–30.6.2026, regnet ex post — reservationen
+  # værdisat med den realiserede aktivering:
   #
-  # Med VP-tabellen (september 2026): objektiv 3.964.586 (gap 0,15 %). Ex
-  # post-tallet er IKKE genberegnet. scripts/capture_rate.py, som bruger
-  # modellens forventede aktivering og ikke den realiserede, giver 118 %
-  # (gammel VP) og 119 % (ny VP) — samme total, anden fordeling på marked.
+  #   scripts/capture_rate.py <dispatch.nc> --case cases/billund_sporB.yaml \
+  #       --facit <facit marts-juni> --start 2026-03-02 --end 2026-06-30 --ex-post
+  #
+  #   VP-tabel (sept. 2026):  aFRR 108 %, mFRR 132 %, i alt 121 %
+  #                           (model 3,85 mio / facit 3,18 mio; objektiv
+  #                           3.964.586, gap 0,15 %)
+  #   Gammel lineær VP:       aFRR 102 %, mFRR 130 %, i alt 117 %
+  #                           (objektiv 4.485.617, gap 0,34 %; STATUS_session29)
+  #
+  # --ex-post genskaber session 28's compare.py præcist (117 %). Uden flaget
+  # viser capture_rate FORVENTEDE tal (foresight: profile), fx 119 % med
+  # VP-tabellen — et andet tal, som ikke må blandes med ex post.
   #
   # BEMÆRK: manifest og sammendrag viser med foresight: profile FORVENTEDE
   # aktiveringstal. Den realiserede værdi af den valgte reservation regnes
