@@ -21,7 +21,7 @@ væsentligt højere brugsgrænser og adgang til Code Execution).
 
 | Opgave | Hvordan |
 |---|---|
-| Forklare modellen, antagelser, valg | Læser fra `doc/rapport_billund_v3.docx` og kildekoden |
+| Forklare modellen, antagelser, valg | Læser kildekoden og README (`doc/rapport_billund_v3.docx` er forældet på kommandoer og tal) |
 | Køre modellen | Code Execution — installerer pakker og kører `run_case.py` |
 | Modificere YAML-konfiguration | Genererer en ny `.yaml` du kan downloade |
 | Lave nye figurer | Genererer matplotlib-plots inline eller som download |
@@ -60,6 +60,10 @@ Eksempel-prompt:
 - Pak ud lokalt
 - Brug GitHub's web-UI til at uploade dem — *Add file → Upload files* i din
   fork's hovedmappe. Skriv en commit-besked.
+- **Verificér efter push.** Klon repo'et på ny, sammenlign de uploadede filer
+  med dem Claude leverede, kør `pytest` og tjek filtilstande
+  (`git ls-files --stage`). Det fanger fejl, der ellers først ses senere — fx en
+  fil der ikke blev uploadet, eller rettigheder der er ændret.
 
 Hvis I vil bidrage tilbage til upstream-repoet, lav en *Pull Request* fra
 jeres fork.

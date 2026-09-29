@@ -10,10 +10,18 @@ tjenes på balancemarkederne (aFRR + mFRR) ved siden af spotsalg. Den er bygget
 i Python med open source-værktøjer (Linopy + HiGHS) og kører på en almindelig
 bærbar.
 
-**Den fulde dokumentation — antagelser, metode, resultater, brugervejledning og
-matematisk formulering — ligger i [`doc/rapport_billund_v3.docx`](doc/rapport_billund_v3.docx)
-([PDF](doc/rapport_billund_v3.pdf)).** Læs den først hvis det er første gang
-du møder modellen.
+**Metode, antagelser og matematisk formulering ligger i
+[`doc/rapport_billund_v3.docx`](doc/rapport_billund_v3.docx)
+([PDF](doc/rapport_billund_v3.pdf)).** Læs den for baggrunden, hvis det er
+første gang du møder modellen.
+
+> **Rapport v3 (24. april 2026) er teknisk forældet — brug denne README til
+> kommandoer og tal.** Casenavnet `billund_baseline.yaml` findes ikke længere,
+> kommandoerne i bilag C bruger `--external` uden `--data-source`,
+> filstrukturen hedder ikke længere `district_heating_bc/`, varmepumpen er nu
+> en målt ydelsestabel, og hovedtallene (bl.a. "19 mio.") er overhalet af
+> valideringen mod Billunds afregning. Se afsnittet **Referencetal**. En ny
+> rapport (v4) er under udarbejdelse.
 
 ---
 
@@ -47,10 +55,11 @@ Første kørsel kloner automatisk
 `data/df-data/`. Efterfølgende kørsler genbruger den lokale cache, så
 typisk køretid er ~30 sekunder. Resultater lander i `output/`.
 
-Hvis du i stedet vil hente friske data direkte fra Energinet og DMI (uden
-om `df-data`-cachen) brug `--external` i stedet for `--data-source github`.
-Det kræver hverken konto eller API-key, men er afhængigt af at API'erne er
-oppe og fungerende på kørselstidspunktet.
+`--external` alene betyder det samme som `--data-source github`. Vil du i
+stedet hente data direkte fra Energinet og DMI (uden om `df-data`-cachen),
+skriv `--external --data-source api`. Det kræver hverken konto eller API-key,
+men er afhængigt af at API'erne er oppe, og **med `--with-balancing` giver
+`api` nul aktiveringsindtægt** — brug `github`, når balancemarkedet skal med.
 
 Se [`doc/WORKFLOW_LOKAL.md`](doc/WORKFLOW_LOKAL.md) for fuldt setup og
 typiske udviklingsmønstre.
@@ -65,6 +74,9 @@ Claude kan både læse modellen, køre den (med Code Execution), forklare result
 og skrive opdaterede konfigurationer ud som filer du kan downloade.
 Se [`doc/WORKFLOW_CLAUDE.md`](doc/WORKFLOW_CLAUDE.md) for hvordan workflow,
 projektopsætning og status-dokumenter bruges i praksis.
+
+Vil du regne på dit eget værk, så start i afsnittet
+[**Dit eget værk — fra regneark til model**](#dit-eget-værk--fra-regneark-til-model).
 
 ---
 
@@ -132,9 +144,9 @@ Kør `python run_case.py --help` for den autoritative liste.
 | Flag | Beskrivelse |
 | ---- | ----------- |
 | `--dummy` | Fuldt syntetiske serier (temperatur, spot, last). Skal vælges eksplicit. Kun til hurtige struktur-tests uden netadgang — tallene ligner rigtige, men er det ikke. |
-| `--external` | Rigtig DMI-temperatur + Energinet-spot + syntetisk varmelast (kalibreret fra `heat_load_params`). |
+| `--external` | Rigtig DMI-temperatur + Energinet-spot + syntetisk varmelast (kalibreret fra `heat_load_params`). Uden `--data-source` hentes fra `df-data` (som `--data-source github`). |
 | `--data-path PATH` | Sti til værkets egne målerdata (endnu ikke aktiveret). |
-| `--data-source {api,github}` | Hvorfra `--external` henter data. `api` = Energinet/DMI direkte. `github` = `df-data`-cachen (anbefalet; **impliserer `--external`** og tæller alene som valg af datakilde). `--data-source api` uden `--external` er ikke et valg. |
+| `--data-source {api,github}` | Hvorfra `--external` henter data. `github` = `df-data`-cachen (default med `--external`; **impliserer `--external`** og tæller alene som valg af datakilde). `api` = Energinet/DMI direkte (med `--with-balancing` giver den nul aktiveringsindtægt). `--data-source api` uden `--external` er ikke et valg. |
 
 Til external-kilden findes desuden:
 
@@ -206,14 +218,49 @@ uanset rækkefølge på kommandolinjen. En kørsel skriver `_kpi.csv`,
 
 ---
 
+## Varmepumpens ydelse — `cop_curve`
+
+En luft/vand-varmepumpe leverer mindre varme, når det er koldt. Modellen kan
+beskrive det på to måder, vælges pr. enhed i casen:
+
+**`type: table` — målt ydelse (anbefalet).** Punkter med udetemperatur, varme
+og eloptag ved fuld last. Varme og el interpoleres hver for sig, COP er
+`varme(T) / el(T)`, og uden for punkterne holdes yderværdien.
+
+```yaml
+cop_curve:
+  type: table
+  points:
+    - { t_ambient: -10.0, heat_mw: 12.0, el_mw: 5.0 }   # COP 2,40
+    - { t_ambient:   0.0, heat_mw: 16.0, el_mw: 5.5 }   # COP 2,91
+    - { t_ambient:  16.0, heat_mw: 21.0, el_mw: 6.2 }   # COP 3,39
+```
+
+- Varmeloftet følger udetemperaturen time for time. `p_max_heat` gælder
+  ovenpå som ekstra loft; sæt det til tabellens største varme, medmindre
+  noget andet end varmepumpen selv begrænser ydelsen.
+- Reservationsloftet i balancemarkedet er tabellens største eloptag.
+- Mindst to punkter; gerne tre (omkring −10 °C, 0 °C og +15 °C).
+
+**`type: linear` — COP ved 0 °C.** Bruges kun, når der ikke findes målepunkter.
+COP stiger lineært med udetemperaturen (mellem 1,8 og 4,0), og varmeloftet er
+fast hele året. Det giver størst eloptag i frost, det omvendte af en
+luft/vand-varmepumpe, så tallene er mindre præcise. Den lineære kurve er
+uændret og kan stadig bruges til sammenligning.
+
+Billund-casene bruger Johns målte ydelse. Det flytter tallene: se **Referencetal**.
+
+---
+
 ## Balancemarked — modellering af indmelding
 
 Med `--with-balancing` udvides MILP'en med op-regulerings­reserver på
 **aFRR** (automatisk) og **mFRR** (manuel) parallelt. Reserverne leveres af
-de **el-forbrugende** enheder (varmepumpe, elkedler — og gasmotoren som CHP):
-en enhed der forbruger el kan byde op-regulering ved at *kunne stoppe* sit
-forbrug hvis kaldt. Ned-regulering er marginal på DK1 og udeladt i nuværende
-scope.
+de **el-forbrugende** enheder (varmepumpe og elkedler): en enhed der
+forbruger el kan byde op-regulering ved at *kunne stoppe* sit forbrug hvis
+kaldt. En gasmotor byder ikke — kun enheder med `fuel: electricity` er med
+(`_eligible_units_for_market`), også selvom `afrr_qualified` er sat. Ned-
+regulering er marginal på DK1 og udeladt i nuværende scope.
 
 ### Bud-variable, kvalifikation og lofter
 
@@ -225,7 +272,11 @@ For hver kvalificeret enhed `i` og time `t` oprettes to bud-variable
 - **Footroom** — produktionen skal kunne dække fuld aktivering af *summen*
   af begge bud: `heat_prod[i,t] ≥ COP(t)·(r_afrr[i,t] + r_mfrr[i,t])`. Det
   er den fysiske binding der kobler reserven til varmedriften og tanken.
-- **Lofter** — i prioriteret rækkefølge:
+- **Lofter** — reservationen kan aldrig overstige enhedens største eloptag.
+  For en varmepumpe med målt ydelsestabel (`cop_curve` af typen `table`, se
+  **Varmepumpens ydelse**) er det tabellens største eloptag; ellers
+  `p_max_heat` divideret med den laveste COP. Ovenpå det gælder, i
+  prioriteret rækkefølge:
   - `balancing.ancillary_caps` (anbefalet): `per_unit_mw` per enhed (samlet
     aFRR+mFRR, **altid** håndhævet — fx VP ≤ 6 MW) og `total_mw`, ét samlet
     loft over *alle* bud og begge markeder per time (Billunds
@@ -297,7 +348,8 @@ balancing:
 | `system_share` | `1[p ≥ bud] · min(1, k·α(τ))`, α = systemets aktiverede volumen / indkøbt kapacitet |
 | `ramp` | `min(1, max(0, (p − bud) / ramp_dkk_mwh))` |
 
-Uden blokken er alt som før (ankeret er urørt). `f(τ)` indgår både i
+Uden blokken regnes aktiveringen som før (`clear`). Spor A-ankeret er
+4.697.269 kr med målt varmepumpe (se **Referencetal**). `f(τ)` indgår både i
 aktiveringsindtægten og i den forventede varmereduktion. Mod Billund rammer
 `system_share` med k=1 aFRR i H2 2025 (7,8 % af reserveret energi mod 8,2 %)
 og mFRR i marts–juni 2026 (14,5 % mod 14,2 %); aFRR i marts–juni 2026 kræver
@@ -364,11 +416,33 @@ kørslen. Loftet beskriver én periode for ét værk og er ikke overførbart.
 ```bash
 python run_case.py cases/billund_sporB.yaml \
     --data-source github --with-balancing \
-    --heat-csv data/billund_abvaerk_hourly.csv --out-dir output/sporB
+    --heat-csv data/billund_abvaerk_hourly_splejset_jun2026.csv \
+    --out-dir output/sporB
 ```
+
+Brug den splejsede fil. `data/billund_abvaerk_hourly.csv` har 161 manglende
+timer i vinduet, og kørslen stopper på dækningen.
 
 Vinduet og kalibreringen står i casen. Et andet vindue kræver nye
 månedslofter — se kommentaren i `billund_sporB.yaml`.
+
+Sammenligning mod Billunds afregning (facit, marts–juni 2026) regnes med
+`capture_rate.py`. Facit ligger ikke i repoet (det er Billunds afregning),
+men skal gives som fil:
+
+```bash
+python scripts/capture_rate.py <dispatch.nc> --case cases/billund_sporB.yaml \
+    --facit <facit mar–jun> --start 2026-03-02 --end 2026-06-30 --ex-post
+```
+
+`--ex-post` sætter modellens tal op mod det realiserede med kendt
+reservation. Resultatet er **121 %** (aFRR 108 %, mFRR 132 %). Læs det med
+disse forbehold: kalibreringen gælder kun marts–juni 2026 og kun med
+Billunds reservation pr. måned som loft (uden loftet reserverer modellen 3–8
+gange for meget); mFRR er overvurderet med ca. 30 %, fordi modellen kender
+kapacitetsprisen på forhånd; motorernes balanceindtægt og nedregulering er
+ikke med; og Spor A er en øvre grænse. Tidligere dokumenter nævner 117 %; det
+er regnet med den gamle lineære varmepumpe.
 
 ---
 
@@ -379,39 +453,132 @@ fjernvarme-businesscase/
 ├── cases/                  # YAML-konfiguration (antagelser per anlæg)
 ├── src/                    # model, dataloader, balancing, reporting
 │   ├── model.py            # MILP-formulering
-│   ├── data_loader.py      # Energinet- og DMI-API'er
-│   ├── nettab.py           # to-led fysisk nettab-model (session 21)
+│   ├── data_loader.py      # Energinet- og DMI-API'er (--data-source api)
+│   ├── data_loader_github.py  # df-data-cachen (--data-source github)
+│   ├── nettab.py           # to-led fysisk nettab-model
 │   ├── balancing.py        # aFRR + mFRR
+│   ├── activation_value.py # aktiveringsværdi og aktiveret andel
+│   ├── tariff.py           # tidsvarierende nettarif, sæsonsatser
 │   ├── unit_commitment.py  # halmens min-uptime
 │   └── reporting.py        # KPI'er og plots
-├── scripts/                # hjælpescripts (rekalibrering m.m.)
-├── data/                   # billund_abvaerk_hourly.csv (måledata)
-├── doc/                    # rapport, figurer, workflow-guides
+├── scripts/                # vaerksark_til_yaml.py (regneark → case),
+│                           # byg_skabelon.py (bygger skabelonen),
+│                           # capture_rate.py (mod Billunds facit),
+│                           # calibrate_heat_load.py m.fl.
+├── tests/                  # pytest
+├── data/                   # billund_abvaerk_hourly*.csv (måledata)
+│   └── df-data/            # klon af df-data (hentes automatisk, gitignored)
+├── deltagere/              # egne værkers ark, cases og data (gitignored)
+├── doc/                    # rapport, figurer, workflow-guides,
+│                           # vaerksdata_skabelon.xlsx
 ├── run_case.py             # CLI
 └── requirements.txt
 ```
 
 Når du kører modellen oprettes der automatisk:
 
-- `data/raw/` — cache af spot-, balance- og DMI-data (~30 MB)
+- `data/df-data/` — klon af `df-data` (~50 MB), med `--data-source github`
+- `data/raw/` — cache af API-svar; bruges kun med `--data-source api`
 - `output/` — KPI'er, time-CSV'er, dispatch-plots
+- `deltagere/` — oprettes af `vaerksark_til_yaml.py` til egne værkers filer
 
-Begge mapper er gitignored og hentes/regenereres automatisk.
+Alle mapper er gitignored og hentes/regenereres automatisk.
 
 ---
 
-## Tilpas til dit eget anlæg
+## Referencetal
 
-1. Kopiér `cases/billund_sporA.yaml` til `cases/<dit_værk>_baseline.yaml`
+Alle tal er kørt med målt varmepumpe (commit `5428147`, `df-data` 21. september
+2026). De erstatter tallene i rapport v3 og i ældre statusnoter.
+
+| case | før (lineær VP) | nu | kommando |
+| ---- | ---: | ---: | -------- |
+| Spor A-anker | 5.186.698 | **4.697.269** | `python run_case.py cases/billund_sporA.yaml --data-source github --with-balancing` |
+| Spor B | 4.485.617 | **3.964.586** | `python run_case.py cases/billund_sporB.yaml --data-source github --with-balancing --heat-csv data/billund_abvaerk_hourly_splejset_jun2026.csv` |
+| Spor B mod facit, ex post | 117 % (aFRR 102, mFRR 130) | **121 %** (aFRR 108, mFRR 132) | `scripts/capture_rate.py … --ex-post` (se Spor B ovenfor) |
+| Billund rullende år (jul 2025–jun 2026) | 22,85 mio | **20.343.221** ¹ | `python run_case.py cases/billund_sporA_rullende.yaml --data-source github --with-balancing --heat-csv data/billund_abvaerk_hourly_splejset_jun2026.csv` |
+| Andeby helår | 23.960.612 | **22.761.390** ¹ | `python run_case.py cases/andeby.yaml --data-source github --with-balancing` |
+
+Beløb i kr. Spor A tager ca. 1 minut. Andeby bruger ca. 3,5 GB hukommelse og 7–15 minutter, så kør den ikke
+live.
+
+¹ Kørt på varianter af casene, som siden er foldet ind i de rigtige filer.
+Modelmæssigt er de identiske (forskellen er kommentarer og `alpha`, som ikke
+bruges med COP-tabel), men de to tal er endnu ikke genkørt fra de endelige
+filer.
+
+Med målt varmepumpe leverer Spor A 20,5 GWh varme (før 17,3) for 6,4 GWh el
+(før 5,7). Største eloptag er 6,2 MW (før 6,98; 8,9 MW i det rullende helår).
+
+---
+
+## Dit eget værk — fra regneark til model
+
+Den letteste vej er Excel-skabelonen
+[`doc/vaerksdata_skabelon.xlsx`](doc/vaerksdata_skabelon.xlsx). Du udfylder
+fire ark, og et script bygger casefilen og varmelasten ud fra dem. Du skal
+ikke skrive YAML.
+
+1. **Udfyld arkene.**
+   - *Timedata*: timeværdier for samlet varmeproduktion ab værk (MW) for
+     1. juli 2025 – 30. juni 2026, og årsproduktionen i GWh. **Tidszonen er et
+     felt, der skal stå som `UTC` eller `dansk lokaltid`** — den gættes ikke,
+     for en forkert tidszone flytter hele året en eller to timer i forhold til
+     elprisen uden at noget ser forkert ud. Manglende timer står som tomme
+     celler, aldrig som nul (nul er en gyldig måling).
+   - *Anlaeg*: produktionsenheder og akkumuleringstanke. Alle syv enhedstyper
+     kan bruges: `heat_pump`, `electric_boiler`, `biomass_boiler`, `gas_boiler`,
+     `gas_engine_chp`, `solar_thermal` og `waste_heat`.
+   - *Varmepumpe*: målepunkter (udetemperatur, varme, el) for hver varmepumpe,
+     som beskrevet under **Varmepumpens ydelse**. Uden punkter bruger
+     konverteringen COP ved 0 °C fra *Anlaeg* og den lineære kurve, og siger det.
+   - *Priser*: brændsels- og elpriser, elafgift, nettarif pr. bånd og sæson
+     (vinter oktober–marts, sommer april–september; tidspunkterne er faste),
+     DMI-område og priszone.
+2. **Konvertér.** Læg arket i `deltagere/` og kør:
+
+   ```bash
+   python scripts/vaerksark_til_yaml.py deltagere/mit_vaerk.xlsx
+   ```
+
+   Scriptet stopper højlydt på alt, det ikke kan tolke, og skriver
+   `deltagere/cases/<navn>.yaml` og `deltagere/data/<navn>_abvaerk_hourly.csv`.
+   Huller i timedata meldes; op til 5 % af vinduet udfyldes ved lineær
+   interpolation, over det stopper modellen.
+3. **Kør.** Konverteringen skriver selv kommandoen:
+
+   ```bash
+   python run_case.py deltagere/cases/<navn>.yaml --data-source github \
+       --heat-csv deltagere/data/<navn>_abvaerk_hourly.csv
+   ```
+
+   Balancemarkedet er slået fra i den genererede case. Læs blokken øverst i
+   filen, før du slår det til (`--with-balancing`) og udfylder lofterne; det
+   skal kun gøres, hvis værket er prækvalificeret hos Energinet.
+
+**Værkets data må ikke komme i det offentlige repo.** `deltagere/` er
+git-ignoreret, og konverteringen nægter at skrive eller læse et ark et sted i
+repoet, som git kan committe. Læg altså arket i `deltagere/` (eller uden for
+repoet). `--tillad-offentlig` slår vagten fra og er kun til egne
+referencecases som Andeby, aldrig til en andens data. `--overskriv` kræves for
+at erstatte en eksisterende fil.
+
+### Avanceret: skriv casen i hånden
+
+Vil du ikke bruge regnearket, kan du tilpasse en case-YAML direkte:
+
+1. Kopiér `cases/billund_sporA_rullende.yaml` til
+   `deltagere/cases/<dit_værk>.yaml`
 2. Erstat enheder, kapaciteter, virkningsgrader og priser med dine egne
 3. Opdater `heat_load_params.nettab`-blokken med jeres typiske værksværdier
    (årligt nettab i % eller MWh, sommer- og vinter-temperaturforhold) — se
    afsnittet **Nettab-model** længere nede.
-4. Erstat `data/billund_abvaerk_hourly.csv` med din egen ab-værk-måling
+4. Læg din ab-værk-måling i `deltagere/data/` og brug `--heat-csv`
 5. Rekalibrér varmebehovs-syntesen mod din måling — se næste afsnit
 6. Kør `run_case.py` og tjek at dispatch-mønsteret ligner virkeligheden
 
-Pilotrapportens §10 og bilag C beskriver fremgangsmåden i detaljer.
+Pilotrapportens §10 og bilag C beskriver fremgangsmåden i detaljer, men
+kommandoerne dér er forældede; brug dem i denne README.
 
 ---
 
@@ -536,11 +703,11 @@ vinterspidser.
 
 ---
 
-## Friske data — automatisk månedlig opdatering
+## Friske data — automatisk ugentlig opdatering
 
-`df-data` opdateres månedligt af et cron-job hos Dansk Fjernvarme: spot-,
-balance- og DMI-data for forrige måned hentes fra Energinet og DMI, fletteres
-ind i års-CSV'erne og pushes til GitHub. Du får den seneste tilstand ved
+`df-data` opdateres ugentligt (mandag) af et cron-job hos Dansk Fjernvarme:
+spot-, balance- og DMI-data hentes, fletteres ind i års-CSV'erne og pushes til
+GitHub. Du får den seneste tilstand ved
 enten at klone repo'et på ny eller køre `git pull` i `data/df-data/`.
 
 Aktuel datadækning står i
@@ -552,8 +719,8 @@ det fælles-nordiske marked. Balance-data kommer fra
 `ImbalancePrice`.
 
 Hvis du har dit eget API-flow og vil hente friske data direkte uden om
-`df-data`-cachen, brug `--external` i stedet for `--data-source github` ved
-modelkørsel.
+`df-data`-cachen, brug `--external --data-source api` ved modelkørsel
+(husk, at det giver nul aktiveringsindtægt med `--with-balancing`).
 
 ---
 

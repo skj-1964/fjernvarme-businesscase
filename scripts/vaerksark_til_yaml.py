@@ -484,7 +484,7 @@ def laes_enheder(sti: Path, priser: dict,
                     "COP ved 0 °C udetemperatur, typisk 2,5–3,5 for luft/vand. "
                     "En årsvirkningsgrad eller en COP ved 7 °C hører ikke til her.")
             u["cop_curve"] = {"type": "linear", "a": round(cop, 3), "b": 0.08,
-                              "cop_min": 1.8, "cop_max": 4.5}
+                              "cop_min": 1.8, "cop_max": 4.0}
             # Dispatch og balancering bruger cop_curve; alpha er fallback og
             # skal pege samme vej, så casefilen ikke modsiger sig selv.
             u["alpha"] = round(-1.0 / cop, 4)

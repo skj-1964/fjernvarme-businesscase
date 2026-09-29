@@ -492,140 +492,65 @@ def fig_tank_decomp():
 # FIG 7: COP(T_ambient) - matchende v1
 # =============================================================================
 def fig_cop_curve():
-    # Indlæs timedata for COP i praksis per måned
-    df = pd.read_csv(DATA / 'billund_sporA__ext__2025-04-01_2026-03-31__bal_hourly.csv',
-                     parse_dates=['timestamp'])
-    df['month'] = df['timestamp'].dt.month
+    """Varmepumpens ydelse fra den målte tabel i cases/billund_sporA.yaml.
 
-    # Månedsgennemsnitlig T og effektiv COP
-    # COP = clip(2.2 + 0.08*T, 1.8, 4.0)
-    month_means = df.groupby('month').agg(
-        t_mean=('t_out_c', 'mean')
-    ).reset_index()
-    month_means['cop_eff'] = np.clip(2.2 + 0.08 * month_means['t_mean'], 1.8, 4.0)
+    Venstre: varme og el ved fuld last (interpoleret, yderværdi holdes uden
+    for punkterne). Højre: COP = varme/el, med den gamle lineære kurve stiplet.
+    Kurven læses fra casefilen, så figuren ikke kan afvige fra modellen.
+    """
+    import yaml
+    repo = Path(__file__).resolve().parent.parent.parent
+    cfg = yaml.safe_load((repo / 'cases' / 'billund_sporA.yaml').read_text(encoding='utf-8'))
+    vp = next(u for u in cfg['units'].values() if u.get('type') == 'heat_pump')
+    pts = sorted(vp['cop_curve']['points'], key=lambda q: q['t_ambient'])
+    t_pts = np.array([q['t_ambient'] for q in pts])
+    q_pts = np.array([q['heat_mw'] for q in pts])
+    e_pts = np.array([q['el_mw'] for q in pts])
 
-    fig, ax = plt.subplots(figsize=(10, 5.5))
+    t = np.linspace(-12, 25, 300)
+    q = np.interp(t, t_pts, q_pts)          # np.interp holder yderværdien
+    e = np.interp(t, t_pts, e_pts)
+    inde = (t >= t_pts.min()) & (t <= t_pts.max())
+    venstre, hoejre = t < t_pts.min(), t > t_pts.max()
 
-    # COP-kurve
-    t_range = np.linspace(-10, 30, 300)
-    cop = np.clip(2.2 + 0.08 * t_range, 1.8, 4.0)
-    ax.plot(t_range, cop, '-', color='#2874a6', lw=2.5,
-            label='COP = clip(2,2 + 0,08·T_ude, 1,8, 4,0)')
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4.8))
 
-    # Grænser
-    ax.axhline(1.8, color='#c0392b', linestyle=':', lw=1, alpha=0.7,
-                label='COP min (defrost)')
-    ax.axhline(4.0, color='#27ae60', linestyle=':', lw=1, alpha=0.7,
-                label='COP max')
+    for y, yp, farve, navn in ((q, q_pts, '#2874a6', 'Varme (MW)'),
+                               (e, e_pts, '#c0392b', 'Eloptag (MW)')):
+        ax1.plot(t[inde], y[inde], '-', color=farve, lw=2.5, label=navn)
+        for side in (venstre, hoejre):
+            ax1.plot(t[side], y[side], ':', color=farve, lw=2)
+        ax1.plot(t_pts, yp, 'o', color=farve, ms=8, zorder=5)
+    ax1.set_xlabel('Udetemperatur [°C]')
+    ax1.set_ylabel('MW ved fuld last')
+    ax1.set_title('Målt ydelse (tre punkter)', fontsize=11)
+    ax1.legend(loc='center right')
+    ax1.set_ylim(0, None)
 
-    # Månedsobservationer - alternér label-placering
-    month_labels_da = ['Jan','Feb','Mar','Apr','Maj','Jun',
-                        'Jul','Aug','Sep','Okt','Nov','Dec']
-    # Placér labels skiftevis over/under punkter for at undgå overlap
-    offsets = [(-15, -18), (10, 8), (8, -15), (6, 8), (-18, 8), (6, -15),
-               (8, 8), (-18, -15), (-15, 8), (8, -15), (-15, -18), (8, 8)]
-    for idx, (_, row) in enumerate(month_means.iterrows()):
-        ax.plot(row['t_mean'], row['cop_eff'], 'o', color='#c0392b',
-                markersize=8, zorder=10)
-        ax.annotate(month_labels_da[int(row['month'])-1],
-                     xy=(row['t_mean'], row['cop_eff']),
-                     xytext=offsets[idx], textcoords='offset points',
-                     fontsize=9, fontweight='bold', color='#c0392b')
+    cop = q / e
+    ax2.plot(t[inde], cop[inde], '-', color='#1e8449', lw=2.5,
+             label='COP = varme(T) / el(T), målt')
+    for side in (venstre, hoejre):
+        ax2.plot(t[side], cop[side], ':', color='#1e8449', lw=2)
+    ax2.plot(t_pts, q_pts / e_pts, 'o', color='#1e8449', ms=8, zorder=5)
+    ax2.plot(t, np.clip(2.2 + 0.08 * t, 1.8, 4.0), '--', color='#7f8c8d', lw=1.8,
+             label='Gammel lineær kurve (afløst)')
+    ax2.set_xlabel('Udetemperatur [°C]')
+    ax2.set_ylabel('COP')
+    ax2.set_title('COP — målt mod gammel lineær kurve', fontsize=11)
+    ax2.set_ylim(1.5, 4.2)
+    ax2.legend(loc='lower right')
 
-    ax.set_xlabel('Udetemperatur [°C]', fontsize=10)
-    ax.set_ylabel('COP', fontsize=10)
-    ax.set_title('COP(T_ude) for luft/vand-varmepumpen — antaget lineær\n[VALIDERES MOD LEVERANDØR-DATABLAD]',
-                  fontsize=11, pad=12)
-    ax.legend(loc='lower right', fontsize=9.5)
-    ax.set_xlim(-10, 30); ax.set_ylim(1.5, 4.5)
-
-    ax.text(0.03, 0.97,
-            'Røde punkter: effektiv COP ved\nmånedsgennemsnits-temperatur.\n'
-            'Lavere COP i kolde måneder → halmen\nbliver relativt mere attraktiv.',
-            transform=ax.transAxes, fontsize=8.5, va='top',
-            bbox=dict(boxstyle='round,pad=0.4', facecolor='#fafafa',
-                     edgecolor='#ccc'))
-
+    fig.suptitle('Varmepumpens ydelse i modellen (cop_curve, type: table)',
+                 fontsize=12, y=1.0)
+    fig.text(0.5, -0.02,
+             'Fuldt optrukket mellem punkterne; stiplet uden for dem, hvor yderværdien holdes.',
+             ha='center', fontsize=8.5, color='#555')
     plt.tight_layout()
-    plt.savefig(OUT / 'fig7_cop_curve.png', dpi=160, bbox_inches='tight',
-                facecolor='white')
+    plt.savefig(Path(__file__).resolve().parent / 'fig7_cop_curve.png', dpi=160,
+                bbox_inches='tight', facecolor='white')
     plt.close()
     print("✓ fig7_cop_curve.png")
-
-
-# =============================================================================
-# FIG 8: Pris-tager-status
-# =============================================================================
-def fig_pris_tager():
-    markets = ['aFRR', 'mFRR']
-    billund = [8.65, 8.65]
-    market_total = [100, 597]  # gennemsnit indkøbt/udbudt i perioden
-
-    pct = [b/m*100 for b, m in zip(billund, market_total)]
-
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4.5))
-
-    # Venstre: stacked bar visning
-    x = np.arange(len(markets))
-    ax1.bar(x, market_total, 0.5, color='#e0e0e0', edgecolor='#666',
-             linewidth=1, label='Resten af markedet')
-    ax1.bar(x, billund, 0.5, color='#2874a6', edgecolor='#333',
-             linewidth=1.2, label='Billund max-bud')
-
-    for i, (b, m, p) in enumerate(zip(billund, market_total, pct)):
-        ax1.text(i, m + 15, f'{m} MW\ntotal', ha='center',
-                fontsize=9, color='#666')
-        # Pil + label til højre for den tynde Billund-bar
-        ax1.annotate(f'{b} MW\n({p:.1f}%)',
-                    xy=(i+0.25, b), xytext=(i+0.6, b+50),
-                    fontsize=11, fontweight='bold', color='#2874a6',
-                    ha='left',
-                    arrowprops=dict(arrowstyle='->', color='#2874a6'))
-
-    ax1.set_xticks(x)
-    ax1.set_xticklabels(markets, fontsize=11)
-    ax1.set_ylabel('MW-kapacitet', fontsize=10)
-    ax1.set_title('Billund i forhold til markedet',
-                   fontsize=11, pad=10)
-    ax1.legend(loc='upper left', fontsize=9)
-    ax1.set_ylim(0, 680)
-
-    # Højre: tekstboks om implikationer
-    ax2.axis('off')
-    ax2.text(0.5, 0.9, 'Pris-tager-status',
-             ha='center', fontsize=13, fontweight='bold',
-             transform=ax2.transAxes)
-
-    ax2.text(0.05, 0.75,
-             '• Billund byder max 8,65 MW på hvert marked\n'
-             '  (VP 2,65 + elkedler 6,00 MW gruppe)',
-             transform=ax2.transAxes, fontsize=10.5, va='top')
-
-    ax2.text(0.05, 0.55,
-             '• aFRR: ~9% af markedet\n'
-             '  → i grænseområdet, følsomhedsanalyse laves',
-             transform=ax2.transAxes, fontsize=10.5, va='top')
-
-    ax2.text(0.05, 0.35,
-             '• mFRR: ~1,4% af markedet\n'
-             '  → solidt pris-tager-område',
-             transform=ax2.transAxes, fontsize=10.5, va='top')
-
-    ax2.text(0.05, 0.12,
-             'Det er en vigtig forudsætning for\n'
-             'analysens validitet: en aktør der\n'
-             'udgør 30% af markedet flytter selv\n'
-             'prisen og skal regnes anderledes.',
-             transform=ax2.transAxes, fontsize=9.5, va='top',
-             style='italic',
-             bbox=dict(boxstyle='round,pad=0.5', facecolor='#fff9e6',
-                      edgecolor='#cc9900'))
-
-    plt.tight_layout()
-    plt.savefig(OUT / 'fig8_pris_tager.png', dpi=160, bbox_inches='tight',
-                facecolor='white')
-    plt.close()
-    print("✓ fig8_pris_tager.png")
 
 
 if __name__ == '__main__':

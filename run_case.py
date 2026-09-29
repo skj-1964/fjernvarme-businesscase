@@ -128,14 +128,15 @@ def _parse_args():
     p.add_argument("--force-refresh", action="store_true",
                    help="Ignorér cache og hent fra API påny")
 
-    # Datakilde for --external — vælg API (Energinet/DMI direkte) eller
-    # GitHub-cache (df-data repo). Default er API for bagudkompatibilitet.
+    # Datakilde for --external — vælg GitHub-cache (df-data) eller API
+    # (Energinet/DMI direkte). Default er github: en glemt --data-source gav
+    # før tavst api, og med balancering betød det nul aktiveringsindtægt (K7).
     # --data-source github impliserer --external.
-    p.add_argument("--data-source", choices=["api", "github"], default="api",
-                   help="Hvor henter --external data fra? 'api' = Energinet/DMI "
-                        "direkte (default). 'github' = df-data-repo (sandkasse-"
-                        "venligt; kræver github.com adgang). 'github' impliserer "
-                        "--external.")
+    p.add_argument("--data-source", choices=["api", "github"], default=None,
+                   help="Hvor henter --external data fra? 'github' = df-data-repo "
+                        "(default; sandkasse-venligt, kræver github.com adgang). "
+                        "'api' = Energinet/DMI direkte (kræver nøgler; med "
+                        "--with-balancing giver den nul aktiveringsindtægt). 'github' impliserer --external.")
     p.add_argument("--df-data-url", default=DEFAULT_DF_DATA_URL,
                    help=f"Git-URL til df-data-repo (default: {DEFAULT_DF_DATA_URL})")
     p.add_argument("--df-data-cache", default=DEFAULT_DF_DATA_CACHE,
@@ -236,6 +237,10 @@ def _parse_args():
 
     args = p.parse_args()
     _require_data_source(args, p.error)
+    # K7: --external uden --data-source betyder github, ikke api. Først efter
+    # tjekket ovenfor, ellers ville default tælle som et aktivt valg.
+    if args.external and args.data_source is None:
+        args.data_source = "github"
     return args
 
 
@@ -245,7 +250,8 @@ DATA_SOURCE_MISSING_MSG = (
     "Ingen datakilde valgt. Vælg præcis én:\n"
     "  --data-source github   rigtige markeds- og vejrdata fra df-data "
     "(anbefalet)\n"
-    "  --external             rigtige data direkte fra Energinet/DMI\n"
+    "  --external             som --data-source github\n"
+    "  --external --data-source api   direkte fra Energinet/DMI (nul aktiveringsindtægt med balancering)\n"
     "  --dummy                fuldt syntetiske data (kun til test)\n"
     "  --data-path STI        målerdata fra fil"
 )
@@ -255,8 +261,8 @@ def _require_data_source(args, fail) -> None:
     """Kald fail(besked), hvis ingen datakilde er valgt eksplicit.
 
     --data-source github tæller som valg, fordi det implicerer --external.
-    --data-source api (argparse-defaulten) tæller ikke -- den har kun
-    betydning sammen med --external.
+    --data-source api alene tæller ikke -- den har kun betydning sammen
+    med --external.
     """
     chosen = (
         args.dummy

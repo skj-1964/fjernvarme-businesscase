@@ -49,8 +49,12 @@ python run_case.py cases/billund_sporA.yaml --dummy
 ```
 
 Med `--dummy` bruges syntetiske data — ingen API-kald, kører på sekunder.
-Når den fungerer, kan du skifte til `--external` for rigtige Energinet- og
-DMI-data.
+Tallene ligner rigtige, men er det ikke. Når den fungerer, skift til
+`--data-source github` for rigtige markeds- og vejrdata fra `df-data`:
+
+```bash
+python run_case.py cases/billund_sporA_rullende.yaml --data-source github --with-balancing
+```
 
 ## Daglig brug
 
@@ -118,15 +122,20 @@ afgrænset YAML-justering eller en figur der skal laves.
 
 Når I bygger en lokal variant til jeres eget værk, anbefales:
 
+Start fra regnearket (`doc/vaerksdata_skabelon.xlsx`, se README) og læg
+alt, der hører til jeres værk, i `deltagere/`:
+
 ```bash
-# Lav en case-fil med jeres navn
-cp cases/billund_sporA.yaml cases/<jeres_værk>_baseline.yaml
-git add cases/<jeres_værk>_baseline.yaml
-git commit -m "Initial baseline for <jeres værk>"
+python scripts/vaerksark_til_yaml.py deltagere/<jeres_værk>.xlsx
 ```
 
-Hold case-filen og evt. egne data under git, og tag jævnligt et "snapshot"
-af kørsler I rapporterer videre fra:
+**`deltagere/` er git-ignoreret med vilje: jeres værks timedata må aldrig
+committes eller pushes til det offentlige repo.** Konverteringen nægter at
+skrive eller læse data et sted, git kan committe. Brug ikke `git add -f`. Vil I
+versionere jeres egen case, så gør det i et privat repo uden for dette.
+
+Tag jævnligt et "snapshot" af kørsler I rapporterer videre fra (kun af
+modelkoden og de offentlige cases):
 
 ```bash
 git tag v2026-bestyrelsesmøde-april
@@ -138,6 +147,10 @@ bestemt notat eller møde.
 
 ## Typiske faldgruber
 
+- **Filrettigheder under WSL** — ligger klonen under `/mnt/c`, viser git
+  filer som ændret fra `644` til `755`. Slå det fra med
+  `git config core.fileMode false`. Filer, der allerede står som `755` i
+  historikken, rettes med `git update-index --chmod=-x <fil>`.
 - **Forskellige Python-versioner mellem maskiner** — pin Python-version i
   README hvis I deler. Vi har testet på 3.10–3.13.
 - **Glemt at aktivere virtual env** — symptomet er `ModuleNotFoundError:

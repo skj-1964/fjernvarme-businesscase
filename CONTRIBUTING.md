@@ -33,8 +33,8 @@ Vi tager imod alt der gør modellen mere brugbar for danske fjernvarme­selskabe
 4. **Test at den kørte 2×2-matrix stadig virker** før I sender — det er den
    primære smoke-test:
    ```bash
-   python run_case.py cases/billund_sporA.yaml --external \
-       --start 2025-04-01 --end 2026-03-31 --with-balancing
+   python run_case.py cases/billund_sporA_rullende.yaml \
+       --data-source github --with-balancing
    ```
 5. **Commit og push:**
    ```bash
@@ -51,8 +51,14 @@ Vi tager imod alt der gør modellen mere brugbar for danske fjernvarme­selskabe
 
 - **Sprog:** dokumentation og kommentarer på dansk, kode-identifiers på
   engelsk (det matcher resten af kodebasen).
-- **YAML:** følg strukturen i `cases/billund_sporA.yaml`. Brug `[TBC]`
-  som markering for værdier der afventer bekræftelse.
+- **YAML:** for et nyt værk er udgangspunktet regnearket
+  `doc/vaerksdata_skabelon.xlsx` og `scripts/vaerksark_til_yaml.py` (se README).
+  Skal du skrive en case i hånden, så følg strukturen i
+  `cases/billund_sporA.yaml`. Brug `[TBC]` som markering for værdier der
+  afventer bekræftelse.
+- **Skabelonen:** `scripts/byg_skabelon.py` er kilden til regnearket. Ret dér
+  og kør scriptet — ret ikke direkte i Excel.
+- **Egne værkers data:** hører i `deltagere/` og må aldrig committes.
 - **Python:** følg den eksisterende stil (PEP-8 i grove træk). Hold linjer
   under ~100 tegn. Tilføj docstrings på nye funktioner.
 - **Filnavne:** lowercase med understreger, undgå mellemrum og særtegn.

@@ -35,7 +35,7 @@ def test_uden_datakilde_stopper(monkeypatch, capsys):
 
 
 def test_data_source_api_alene_er_ikke_et_valg(monkeypatch):
-    # 'api' er argparse-defaulten og betyder kun noget sammen med --external.
+    # 'api' betyder kun noget sammen med --external.
     with pytest.raises(SystemExit):
         _parse(monkeypatch, "--data-source", "api")
 
@@ -77,3 +77,24 @@ def test_load_data_falder_ikke_tavst_tilbage_til_dummy(monkeypatch):
                            data_source="api")
     with pytest.raises(ValueError, match="Ingen datakilde valgt"):
         run_case._load_data(args, cfg=None)
+
+
+def test_external_alene_betyder_github(monkeypatch):
+    # K7: før var defaulten 'api', som med --with-balancing tavst gav nul
+    # aktiveringsindtægt.
+    args = _parse(monkeypatch, "--external")
+    assert args.data_source == "github"
+
+
+def test_external_med_eksplicit_api_forbliver_api(monkeypatch):
+    args = _parse(monkeypatch, "--external", "--data-source", "api")
+    assert args.data_source == "api"
+
+
+@pytest.mark.parametrize("flags", [("--dummy",), ("--data-path", "et/sted")])
+def test_ikke_ekstern_kørsel_faar_ingen_datakilde(monkeypatch, flags):
+    # Defaulten må ikke lække ind i --dummy: main() sætter external=True,
+    # hvis data_source er 'github'.
+    args = _parse(monkeypatch, *flags)
+    assert args.data_source is None
+    assert args.external is False
