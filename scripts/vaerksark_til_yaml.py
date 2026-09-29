@@ -75,6 +75,50 @@ def slug(navn: str) -> str:
     return s
 
 
+def find_raekke(sti: Path, ark: str, start: str, *, praefiks=False,
+                efter: int = 0) -> int | None:
+    """1-baseret rækkenummer for første celle i kolonne A, der er `start`
+    (uden hensyn til store/små bogstaver og mellemrum omkring), eller — med
+    praefiks — begynder med den. Rækker til og med `efter` springes over.
+
+    Blokkene i arkene (enheder, tanke, målepunkter) findes på deres overskrift
+    og ikke på et fast rækkenummer: vejledningen beder deltageren slette de
+    grå rækker, og så rykker alt under dem op."""
+    raa = pd.read_excel(sti, sheet_name=ark, header=None, usecols=[0])
+    for i, v in enumerate(raa.iloc[:, 0], start=1):
+        if i <= efter or not isinstance(v, str):
+            continue
+        t = " ".join(v.split()).lower()
+        if t == start or (praefiks and t.startswith(start)):
+            return i
+    return None
+
+
+def _regn_formel(f: str):
+    """Ren talformel som `=65*3,6`: kun tal og + - * / ( ). Alt andet → None."""
+    import ast
+    import operator
+    ops = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
+           ast.Div: operator.truediv}
+
+    def ev(n):
+        if isinstance(n, ast.Expression):
+            return ev(n.body)
+        if isinstance(n, ast.Constant) and isinstance(n.value, (int, float)) \
+                and not isinstance(n.value, bool):
+            return float(n.value)
+        if isinstance(n, ast.BinOp) and type(n.op) in ops:
+            return ops[type(n.op)](ev(n.left), ev(n.right))
+        if isinstance(n, ast.UnaryOp) and isinstance(n.op, (ast.USub, ast.UAdd)):
+            v = ev(n.operand)
+            return -v if isinstance(n.op, ast.USub) else v
+        raise ValueError
+    try:
+        return ev(ast.parse(f.lstrip("=").strip().replace(",", "."), mode="eval"))
+    except (ValueError, SyntaxError, ZeroDivisionError):
+        return None
+
+
 def tal(v, felt: str, *, kraev=False):
     if v is None or (isinstance(v, float) and pd.isna(v)) or v == "":
         if kraev:
@@ -99,10 +143,13 @@ def laes_tidszone(sti: Path) -> str:
         v = str(raa.iat[1, 1] or "").strip().lower()
     except IndexError:
         v = ""
-    if v in ("utc", "utc+0", "z", "gmt"):
+    # Store/små bogstaver og mellemrum (også Excels hårde mellemrum) er ikke
+    # en tolkning. 'Dansk lokal' er ikke 'dansk lokaltid' og bliver ikke gættet.
+    k = "".join(v.split())
+    if k in ("utc", "utc+0", "z", "gmt"):
         return "UTC"
-    if v in ("dansk lokaltid", "dansk tid", "lokaltid", "lokal tid",
-             "europe/copenhagen", "cet", "cest"):
+    if k in ("dansklokaltid", "dansktid", "lokaltid", "europe/copenhagen",
+             "cet", "cest"):
         return "Europe/Copenhagen"
     raise ArkFejl(
         f"Tidszonefeltet i Timedata (celle B2) siger {v!r}. Det skal stå som "
@@ -140,6 +187,7 @@ def laes_timedata(sti: Path, slugnavn: str, ud_dir: Path, overskriv: bool,
     df = pd.read_excel(sti, sheet_name="Timedata", skiprows=4, usecols=[0, 1])
     df.columns = ["timestamp", "heat_mw_abvaerk"]
     df = df.dropna(how="all")
+    df["raekke"] = df.index + 6          # rækkenummeret i Excel, til fejlbeskeder
 
     # Helt tomt ark → kør på årsproduktionen alene, hvis den er udfyldt.
     if df.dropna(how="all").empty:
@@ -169,6 +217,19 @@ def laes_timedata(sti: Path, slugnavn: str, ud_dir: Path, overskriv: bool,
     df = df.dropna(subset=["heat_mw_abvaerk"])
     if df.empty:
         raise ArkFejl("Arket Timedata har tidsstempler, men ingen værdier i kolonne B.")
+
+    # Tekst i talkolonnen ('???', '-', 'n/a', et tal med komma som tekst) skal
+    # stoppe med række og indhold, ikke give et traceback længere nede.
+    maalt = pd.to_numeric(df["heat_mw_abvaerk"], errors="coerce")
+    tekst = maalt.isna()
+    if tekst.any():
+        eks = "; ".join(f"række {int(r.raekke)}: {r.heat_mw_abvaerk!r}"
+                        for r in df[tekst].head(5).itertuples())
+        raise ArkFejl(
+            f"{int(tekst.sum())} værdier i kolonne B i Timedata er tekst og ikke "
+            f"tal — {eks}. Slet indholdet af cellen, så den står tom (tomme "
+            "timer udfyldes af modellen), eller skriv tallet.")
+    df["heat_mw_abvaerk"] = maalt
 
     # Under fire uger er det ikke et udtræk, men eksempelrækkerne eller et
     # halvt indsat ark. Det skal stoppe, ikke blive til en case, der ser rigtig ud.
@@ -210,10 +271,33 @@ def laes_timedata(sti: Path, slugnavn: str, ud_dir: Path, overskriv: bool,
         print("    Tidsstempler konverteret fra dansk lokaltid til UTC.")
 
     df = df.sort_values("timestamp").reset_index(drop=True)
+
+    # Perioden er fast: 1. juli 2025 kl. 00 til 30. juni 2026 kl. 23, i den
+    # tidszone arket er skrevet i. Dækning måles mod den — ikke mod seriens eget
+    # første og sidste tidsstempel, for så ser en serie uden juni fuldstændig ud.
+    if tz == "UTC":
+        v_start = pd.Timestamp("2025-07-01 00:00")
+        v_slut = pd.Timestamp("2026-06-30 23:00")
+    else:
+        v_start = (pd.Timestamp("2025-07-01 00:00", tz="Europe/Copenhagen")
+                   .tz_convert("UTC").tz_localize(None))
+        v_slut = (pd.Timestamp("2026-06-30 23:00", tz="Europe/Copenhagen")
+                  .tz_convert("UTC").tz_localize(None))
+    vindue_timer = int((v_slut - v_start) / timedelta(hours=1)) + 1
+    uden_for = (df["timestamp"] < v_start) | (df["timestamp"] > v_slut)
+    if uden_for.any():
+        eks = "; ".join(f"række {int(r.raekke)}: {r.timestamp:%Y-%m-%d %H:%M}"
+                        for r in df[uden_for].head(5).itertuples())
+        raise ArkFejl(
+            f"{int(uden_for.sum())} tidsstempler i Timedata ligger uden for "
+            f"perioden 1. juli 2025 – 30. juni 2026 — {eks}. Et tidsstempel som "
+            "1900 betyder som regel, at cellen ikke er en dato. Ret eller slet "
+            "rækkerne.")
     spaend = df["timestamp"].iloc[-1] - df["timestamp"].iloc[0]
     fulde_timer = int(spaend / timedelta(hours=1)) + 1
     huller = fulde_timer - len(df)
-    daekning = len(df) / fulde_timer
+    i_vinduet = int(df["timestamp"].nunique())
+    daekning = i_vinduet / vindue_timer
 
     negative = (df["heat_mw_abvaerk"] < 0).sum()
     if negative:
@@ -224,20 +308,41 @@ def laes_timedata(sti: Path, slugnavn: str, ud_dir: Path, overskriv: bool,
     if ud.exists() and not overskriv:
         raise ArkFejl(f"{ud} findes allerede. Kør med --overskriv, hvis den skal erstattes.")
     ud.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(ud, index=False, date_format="%Y-%m-%d %H:%M:%S")
+    df[["timestamp", "heat_mw_abvaerk"]].to_csv(
+        ud, index=False, date_format="%Y-%m-%d %H:%M:%S")
 
     start = df["timestamp"].iloc[0].strftime("%Y-%m-%dT%H:00:00Z")
     slut = df["timestamp"].iloc[-1].strftime("%Y-%m-%dT%H:00:00Z")
-    aarsvolumen = float(df["heat_mw_abvaerk"].sum() / 1000.0 * (8760 / max(fulde_timer, 1)))
+    maalt_gwh = float(df["heat_mw_abvaerk"].sum() / 1000.0)
+    aarsvolumen = maalt_gwh * (vindue_timer / max(i_vinduet, 1))
 
     print(f"  Timedata: {len(df)} timer, {df['timestamp'].iloc[0]:%Y-%m-%d} til "
-          f"{df['timestamp'].iloc[-1]:%Y-%m-%d} (UTC), dækning {daekning:.1%}")
+          f"{df['timestamp'].iloc[-1]:%Y-%m-%d} (UTC), dækning af perioden "
+          f"1. juli 2025 – 30. juni 2026: {daekning:.1%}")
+    i_start = int((df["timestamp"].iloc[0] - v_start) / timedelta(hours=1))
+    i_slut = int((v_slut - df["timestamp"].iloc[-1]) / timedelta(hours=1))
+    if i_start > 0 or i_slut > 0:
+        dele = []
+        if i_start > 0:
+            dele.append(f"{i_start} timer i starten (serien begynder "
+                        f"{df['timestamp'].iloc[0]:%d/%m %H:%M} UTC, ikke {v_start:%d/%m %H:%M} UTC)")
+        if i_slut > 0:
+            dele.append(f"{i_slut} timer i slutningen (serien slutter "
+                        f"{df['timestamp'].iloc[-1]:%d/%m %H:%M} UTC, ikke {v_slut:%d/%m %H:%M} UTC)")
+        print("    ADVARSEL: perioden er ikke dækket. Der mangler " + " og ".join(dele) +
+              ". Enderne kan modellen ikke interpolere; kørslen regner på det, der er.")
+    if i_vinduet < vindue_timer:
+        print(f"    Årsvolumen er {maalt_gwh:.1f} GWh i de {i_vinduet} timer, der er, "
+              f"og regnes op til {aarsvolumen:.1f} GWh for {vindue_timer} timer.")
 
     # Krydstjek mod det årstal, deltageren selv har skrevet. De to tal kommer
     # fra hver sin kilde — SRO-udtrækket og årsopgørelsen — og er de uenige,
     # er det som regel enheden (MW mod MWh) eller en manglende måler.
     if aars_gwh is not None:
         afvig = (aarsvolumen - aars_gwh) / aars_gwh
+        if abs(afvig) <= 0.05:
+            print(f"    Timeserien svarer til {aarsvolumen:.1f} GWh/år; B3 siger "
+                  f"{aars_gwh:.1f} GWh ({afvig:+.1%}). Modellen bruger timeserien.")
         if abs(afvig) > 0.05:
             print(f"    Timeserien svarer til {aarsvolumen:.1f} GWh/år, men B3 "
                   f"siger {aars_gwh:.1f} GWh — {afvig:+.0%}. Tjek om udtrækket "
@@ -280,9 +385,18 @@ def laes_varmepumper(sti: Path) -> dict[str, list[dict]]:
     varmepumper falder tilbage på COP ved 0 °C i arket Anlaeg.
     """
     try:
+        hr = find_raekke(sti, "Varmepumpe", "navn")
+    except ValueError:                      # ark uden arket Varmepumpe
+        return {}
+    if hr is None:
+        raise ArkFejl("Arket Varmepumpe: overskriften 'navn' i kolonne A er ikke "
+                      "til at finde. Slet ikke overskriftsrækken.")
+    foerste = hr + 1
+    note = find_raekke(sti, "Varmepumpe", "tjek cop", praefiks=True, efter=hr)
+    try:
         df = pd.read_excel(sti, sheet_name="Varmepumpe", header=None,
-                           skiprows=VP_FOERSTE_RAEKKE - 1, usecols=range(4),
-                           nrows=VP_MAKS_RAEKKER)
+                           skiprows=foerste - 1, usecols=range(4),
+                           nrows=(note - foerste) if note else VP_MAKS_RAEKKER)
     except ValueError:
         return {}
     # Tomme kolonner i bunden af arket kan falde helt ud af indlæsningen.
@@ -291,7 +405,7 @@ def laes_varmepumper(sti: Path) -> dict[str, list[dict]]:
 
     tabeller: dict[str, list[dict]] = {}
     for i, r in df.iterrows():
-        raekke = int(i) + VP_FOERSTE_RAEKKE
+        raekke = int(i) + foerste
         tom_navn = pd.isna(r["navn"]) or str(r["navn"]).strip() == ""
         tal_felter = [r["t"], r["varme"], r["el"]]
         if tom_navn and all(pd.isna(v) for v in tal_felter):
@@ -350,7 +464,13 @@ def _vp_kurve(navn: str, punkter: list[dict]) -> tuple[dict, float, float]:
 # -------------------------------------------------------------------- anlæg
 def laes_enheder(sti: Path, priser: dict,
                  vp_tabeller: dict[str, list[dict]] | None = None) -> dict:
-    df = pd.read_excel(sti, sheet_name="Anlaeg", skiprows=3, usecols=range(13), nrows=19)
+    hr = find_raekke(sti, "Anlaeg", "navn")
+    if hr is None:
+        raise ArkFejl("Arket Anlaeg: overskriften 'navn' i kolonne A er ikke til at "
+                      "finde. Slet ikke overskriftsrækken over enhederne.")
+    slut = find_raekke(sti, "Anlaeg", "lovlige værdier", praefiks=True, efter=hr)
+    df = pd.read_excel(sti, sheet_name="Anlaeg", skiprows=hr - 1, usecols=range(13),
+                       nrows=(slut - hr - 1) if slut else 19)
     df.columns = ["navn", "type", "p_max", "p_min", "eta", "cop", "eta_el",
                   "var_om", "start_cost", "min_up", "min_down", "balance",
                   "sol_gwh"]
@@ -360,7 +480,7 @@ def laes_enheder(sti: Path, priser: dict,
 
     units: dict = {}
     for i, r in df.iterrows():
-        raekke = int(i) + 5
+        raekke = int(i) + hr + 1
         navn = slug(r["navn"])
         if navn in units:
             raise ArkFejl(f"Enhedsnavnet '{r['navn']}' står to gange (række {raekke}).")
@@ -557,7 +677,12 @@ def laes_enheder(sti: Path, priser: dict,
 
 
 def laes_tanke(sti: Path) -> dict:
-    df = pd.read_excel(sti, sheet_name="Anlaeg", skiprows=50, usecols=range(5), nrows=6)
+    hr = find_raekke(sti, "Anlaeg", "tank")
+    if hr is None:
+        raise ArkFejl("Arket Anlaeg: overskriften 'tank' i kolonne A er ikke til at "
+                      "finde. Slet ikke overskriftsrækken over tankene — ryd "
+                      "kun indholdet af de rækker, du ikke bruger.")
+    df = pd.read_excel(sti, sheet_name="Anlaeg", skiprows=hr - 1, usecols=range(5), nrows=6)
     df.columns = ["navn", "volumen", "e_max", "lade", "aflade"]
     df = df.dropna(subset=["navn", "volumen"])
     if df.empty:
@@ -566,7 +691,7 @@ def laes_tanke(sti: Path) -> dict:
 
     storage: dict = {}
     for i, r in df.iterrows():
-        raekke = int(i) + 52
+        raekke = int(i) + hr + 1
         vol = tal(r["volumen"], f"tank række {raekke}, volumen", kraev=True)
         e_max = tal(r["e_max"], f"tank række {raekke}, maks fyldning", kraev=True)
         if not 0.5 < e_max < 5000:
@@ -659,11 +784,36 @@ def skriv_solprofil(sti: Path, start: str, slut: str, aars_gwh: float) -> None:
 def laes_priser(sti: Path) -> tuple[dict, dict, dict]:
     raa = pd.read_excel(sti, sheet_name="Priser", header=None)
 
+    # Formelceller: pandas læser den cachede værdi, og en fil, der er gemt uden
+    # om Excel (fx af et script), har ingen. Så læses formlen selv. En ren
+    # talformel som =65*3,6 regnes ud; alt med cellehenvisninger afvises.
+    import openpyxl
+    formler = {}
+    try:
+        wsf = openpyxl.load_workbook(sti, data_only=False)["Priser"]
+        for raekke in wsf.iter_rows():
+            for c in raekke:
+                if isinstance(c.value, str) and c.value.startswith("="):
+                    formler[(c.row - 1, c.column - 1)] = (c.coordinate, c.value)
+    except Exception:
+        pass
+
     def celle(r, c):
         try:
-            return raa.iat[r, c]
+            v = raa.iat[r, c]
         except IndexError:
-            return None
+            v = None
+        f = formler.get((r, c))
+        if f and (v is None or (isinstance(v, float) and pd.isna(v))
+                  or (isinstance(v, str) and v.startswith("="))):
+            regnet = _regn_formel(f[1])
+            if regnet is None:
+                raise ArkFejl(
+                    f"Priser {f[0]} indeholder en formel ({f[1]}), som ikke kan "
+                    "læses, uden at arket er regnet igennem i Excel. Skriv tallet "
+                    "i cellen i stedet for formlen.")
+            return regnet
+        return v
 
     navne = {"naturgas": "natural_gas", "halm": "straw", "flis": "flis",
              "overskudsvarme": "waste_heat", "CO2": "co2_eua"}

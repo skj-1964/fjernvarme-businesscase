@@ -180,3 +180,44 @@ def test_hourly_csv_contract_is_n_minus_one(tmp_path):
     assert df["timestamp"].iloc[0] == idx[1], "første række skal være idx[1]"
     assert df["timestamp"].iloc[-1] == idx[-1], "sidste række skal være idx[-1]"
     assert idx[0] not in set(df["timestamp"]), "t=0 skal være droppet"
+
+
+def test_hourly_csv_klarer_timer_uden_varmelast(tmp_path):
+    """Give Fjernvarme (29/9 2026): op til 65 timer i træk uden varmeproduktion om
+    sommeren er ægte. `heat_nettab_pct` deler med lasten, og nul blev til pd.NA
+    (dtype object), så .round(2) fejlede med `TypeError: NAType ... __round__` —
+    efter at hele MILP'en var løst og alle andre filer skrevet."""
+    import numpy as np
+    import xarray as xr
+
+    from src.reporting import write_hourly_csv
+
+    idx = pd.date_range("2026-07-01 00:00", periods=48, freq="h")
+    n = len(idx)
+    last = np.full(n, 3.0)
+    last[10:30] = 0.0
+    data = xr.Dataset(
+        {
+            "heat_demand": ("time", last),
+            "heat_nettab": ("time", np.full(n, 0.2)),
+            "spot_price": ("time", np.full(n, 500.0)),
+        },
+        coords={"time": idx},
+    )
+    result = xr.Dataset(
+        {"heat_prod": (("unit", "time"), np.full((1, n), 3.0))},
+        coords={"time": idx, "unit": ["fliskedel"]},
+    )
+
+    class _Unit:
+        enabled = True
+        production_profile_path = None
+
+    class _Cfg:
+        units = {"fliskedel": _Unit()}
+        storage = {}
+
+    out = write_hourly_csv(result, data, _Cfg(), tmp_path / "h.csv")
+    df = pd.read_csv(out)
+    assert df["heat_nettab_pct"].isna().sum() >= 19        # tom, ikke 0 eller inf
+    assert df["heat_nettab_pct"].dropna().eq(round(0.2 / 3.0 * 100, 2)).all()

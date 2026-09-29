@@ -349,7 +349,9 @@ def write_hourly_csv(result: xr.Dataset, data: xr.Dataset, cfg,
         df["heat_guf_mw"] = data["heat_guf"].values
     if "heat_nettab" in data.data_vars:
         df["heat_nettab_mw"] = data["heat_nettab"].values
-        load = df["heat_load_mw"].replace(0, pd.NA)
+        # NaN, ikke pd.NA: en time uden last (fx et sommerstop) giver en tom
+        # procent og ikke en object-kolonne, som .round() ikke kan håndtere.
+        load = df["heat_load_mw"].where(df["heat_load_mw"] != 0)
         df["heat_nettab_pct"] = (df["heat_nettab_mw"] / load * 100).round(2)
 
     # --- Marked, duals og vejr ---------------------------------------------

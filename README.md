@@ -529,6 +529,9 @@ ikke skrive YAML.
    - *Anlaeg*: produktionsenheder og akkumuleringstanke. Alle syv enhedstyper
      kan bruges: `heat_pump`, `electric_boiler`, `biomass_boiler`, `gas_boiler`,
      `gas_engine_chp`, `solar_thermal` og `waste_heat`.
+     De grå rækker er eksempler: slet dem, du ikke har, eller skriv hen over.
+     Overskrifterne (`navn` over enhederne, `tank` over tankene) må blive stående;
+     konverteringen finder blokkene på dem og ikke på et fast rækkenummer.
    - *Varmepumpe*: målepunkter (udetemperatur, varme, el) for hver varmepumpe,
      som beskrevet under **Varmepumpens ydelse**. Uden punkter bruger
      konverteringen COP ved 0 °C fra *Anlaeg* og den lineære kurve, og siger det.
