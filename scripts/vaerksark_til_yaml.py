@@ -430,6 +430,12 @@ def laes_enheder(sti: Path, priser: dict,
         else:
             u["fuel"] = BRAENDSEL_PR_TYPE[type_]
 
+        if type_ in ("gas_boiler", "gas_engine_chp") and "co2_eua" not in priser:
+            raise ArkFejl(
+                f"Række {raekke}: '{r['navn']}' bruger gas, men CO2-cellen på "
+                "arket Priser er tom. Indeholder gasprisen allerede "
+                "CO2-afgiften, så skriv 0; ellers skriv CO2-prisen i kr pr. ton.")
+
         if type_ == "waste_heat" and not priser.get("waste_heat"):
             raise ArkFejl(
                 f"Række {raekke}: '{r['navn']}' er overskudsvarme, men prisen "
@@ -901,6 +907,9 @@ def main() -> int:
             a.ark, s, a.data_dir, a.overskriv, tz, aars_gwh)
         vp_tabeller = laes_varmepumper(a.ark)
         units = laes_enheder(a.ark, priser, vp_tabeller)
+        # Ingen gasenhed (laes_enheder har ellers stoppet): CO2 spiller ingen
+        # rolle, men casen skal have feltet for at kunne indlæses.
+        priser.setdefault("co2_eua", {"value": 0.0, "unit": "DKK/t_CO2"})
         if vp_tabeller:
             raise ArkFejl(
                 "Arket Varmepumpe har målepunkter for "

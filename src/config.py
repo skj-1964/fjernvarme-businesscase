@@ -586,11 +586,14 @@ class Storage:
 
 @dataclass
 class Prices:
-    natural_gas: float
-    straw: float
-    waste_heat: float
-    co2_eua: float                                # DKK per MWh_gas (omregnet fra EUA)
-    flis: float = 0.0                             # DKK/MWh_brændsel (flis/træflis)
+    co2_eua: float                                # DKK per t CO2
+    # Brændselspriserne er valgfri: et værk bruger sjældent alle. Mangler
+    # prisen, og en enhed alligevel bruger brændslet, stopper fuel_price med en
+    # klar besked i stedet for at regne med 0 kr/MWh.
+    natural_gas: Optional[float] = None
+    waste_heat: Optional[float] = None
+    straw: Optional[float] = None
+    flis: Optional[float] = None                  # DKK/MWh_brændsel (flis/træflis)
 
     def fuel_price(self, fuel: str) -> float:
         """Returnér råvare-brændselspris i DKK/MWh_brændsel."""
@@ -603,6 +606,12 @@ class Prices:
         }
         if fuel not in mapping:
             raise KeyError(f"Ukendt brændsel: {fuel}")
+        if mapping[fuel] is None:
+            navn = {"straw": "halm", "flis": "flis", "natural_gas": "naturgas",
+                    "waste_heat": "overskudsvarme"}.get(fuel, fuel)
+            raise ValueError(
+                f"En enhed bruger {navn}, men prisen for {navn} er ikke sat "
+                f"under prices i casen.")
         return mapping[fuel]
 
 
@@ -882,12 +891,18 @@ def load_case(
 
     # Priser
     p = raw["prices"]
+    if "co2_eua" not in p:
+        raise ValueError(
+            "prices.co2_eua mangler i casen. Skriv 0, hvis gasprisen "
+            "allerede indeholder CO2-afgiften (kr pr. ton CO2 ellers).")
+    straw = p["straw"]["value"] if "straw" in p else None
     prices = Prices(
-        natural_gas=p["natural_gas"]["value"],
-        straw=p["straw"]["value"],
-        waste_heat=p["waste_heat"]["value"],
         co2_eua=p["co2_eua"]["value"],
-        flis=p["flis"]["value"] if "flis" in p else p["straw"]["value"],
+        natural_gas=p["natural_gas"]["value"] if "natural_gas" in p else None,
+        waste_heat=p["waste_heat"]["value"] if "waste_heat" in p else None,
+        straw=straw,
+        # Ældre cases uden flis bruger halmprisen (uændret adfærd)
+        flis=p["flis"]["value"] if "flis" in p else straw,
     )
 
     # El
