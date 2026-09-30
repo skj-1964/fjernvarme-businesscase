@@ -633,10 +633,13 @@ class TimeHorizon:
     resolution: str                               # "1h" el. "15min"
 
 
-# DMI-stationer der findes i df-data. Udvid listen, hvis df-data faar flere.
+# DMI-omraader der findes i df-data. Udvid listen, hvis df-data faar flere.
+# Konverteringen (scripts/vaerksark_til_yaml.py) bruger denne liste direkte.
+# Skabelonens dropdown (scripts/byg_skabelon.py) har sin egen kopi; tests/
+# test_dmi_ringsted.py fejler, hvis de to kommer ud af trit.
 # Formaalet er at fange tastefejl ved config-indlaesning frem for nede i
 # loaderen, hvor fejlen bliver "fil ikke fundet".
-KENDTE_DMI_OMRAADER = ("fyn", "vestkyst", "karup")
+KENDTE_DMI_OMRAADER = ("fyn", "vestkyst", "karup", "ringsted")
 
 # Priszoner i df-data.
 KENDTE_PRISZONER = ("DK1", "DK2")

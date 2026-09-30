@@ -48,6 +48,11 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+# Området kommer fra config, ikke fra en kopi her: skabelonens dropdown, modellens
+# indlæsning og denne konvertering skal altid kende de samme DMI-områder.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from src.config import KENDTE_DMI_OMRAADER  # noqa: E402
+
 TYPER_UDEN_BRAENDSEL = {"heat_pump", "electric_boiler", "solar_thermal"}
 BRAENDSEL_PR_TYPE = {
     "heat_pump": "electricity",
@@ -917,9 +922,10 @@ def laes_priser(sti: Path) -> tuple[dict, dict, dict]:
     }
 
     omraade = str(celle(27, 1) or "").strip().lower()
-    if omraade not in ("fyn", "vestkyst", "karup"):
+    if omraade not in KENDTE_DMI_OMRAADER:
         raise ArkFejl(f"Priser: DMI-område '{omraade}' er ikke kendt. "
-                      "Vælg fyn, vestkyst eller karup.")
+                      f"Vælg {', '.join(KENDTE_DMI_OMRAADER[:-1])} eller "
+                      f"{KENDTE_DMI_OMRAADER[-1]}.")
     zone = str(celle(28, 1) or "").strip().upper()
     if zone not in ("DK1", "DK2"):
         raise ArkFejl(f"Priser: priszone '{zone}' er ikke kendt. Vælg DK1 eller DK2.")
