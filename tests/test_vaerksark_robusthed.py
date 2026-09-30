@@ -124,3 +124,44 @@ def test_tidszone_gaettes_aldrig(tmp_path):
         wb["Timedata"]["B2"] = "Dansk lokal"
     r, case = _kør(tmp_path, tz)
     assert r.returncode != 0 and case is None
+
+
+# ------------------------------------------------- Aulum (30/9 2026)
+# Aulums ark havde en sidste række (8765) med samme tidsstempel som første række.
+# Konverteren kaldte to gentagelser for "efterårets dobbelttime, som forventet",
+# og CSV'en fik en reel dublet. Og en fejl sent i konverteringen (varmepumpe-
+# arket) efterlod en timefil, så andet forsøg krævede --overskriv.
+def _lokal_aarsserie(wb, stray=False):
+    import pandas as pd
+    ws = wb["Timedata"]
+    ws["B2"] = "dansk lokaltid"
+    t = (pd.date_range("2025-06-30 22:00", "2026-06-30 21:00", freq="h", tz="UTC")
+         .tz_convert("Europe/Copenhagen").tz_localize(None))
+    for i, a in enumerate(t):
+        ws.cell(6 + i, 1).value = a.to_pydatetime()
+        ws.cell(6 + i, 2).value = 3.0
+    if stray:
+        ws.cell(6 + len(t) - 1, 1).value = t[0].to_pydatetime()   # som Aulum række 8765
+
+
+def test_efteraarets_dobbelttime_er_stadig_tilladt_i_dansk_tid(tmp_path):
+    r, case = _kør(tmp_path, _lokal_aarsserie)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "dobbelttime" in r.stdout
+
+
+def test_dublet_uden_for_dobbelttimen_stopper_med_raekke(tmp_path):
+    r, case = _kør(tmp_path, lambda wb: _lokal_aarsserie(wb, stray=True))
+    assert r.returncode != 0, r.stdout
+    ud = r.stdout + r.stderr
+    assert "8765" in ud and "Traceback" not in r.stderr
+    assert not list((tmp_path / "data").glob("*_abvaerk_hourly.csv"))
+
+
+def test_sen_fejl_efterlader_ingen_timefil(tmp_path):
+    def vp_uden_navn(wb):
+        wb["Varmepumpe"]["B20"] = 5.0            # tal uden navn
+    r, case = _kør(tmp_path, vp_uden_navn)
+    assert r.returncode != 0
+    assert "Varmepumpe" in r.stdout + r.stderr
+    assert not list((tmp_path / "data").glob("*_abvaerk_hourly.csv"))

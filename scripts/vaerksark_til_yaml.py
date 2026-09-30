@@ -183,7 +183,7 @@ def laes_aarsproduktion(sti: Path) -> float | None:
 
 def laes_timedata(sti: Path, slugnavn: str, ud_dir: Path, overskriv: bool,
                   tz: str, aars_gwh: float | None = None
-                  ) -> tuple[Path | None, str, str, float]:
+                  ) -> tuple[Path | None, str, str, float, "pd.DataFrame | None"]:
     df = pd.read_excel(sti, sheet_name="Timedata", skiprows=4, usecols=[0, 1])
     df.columns = ["timestamp", "heat_mw_abvaerk"]
     df = df.dropna(how="all")
@@ -200,7 +200,7 @@ def laes_timedata(sti: Path, slugnavn: str, ud_dir: Path, overskriv: bool,
               f"årsproduktionen på {aars_gwh:.1f} GWh og DMI-vejrdata. "
               "Resultatet er et regneeksempel med værkets anlæg og priser — "
               "ikke en model af værkets faktiske drift.")
-        return None, "2025-07-01T00:00:00Z", "2026-06-30T23:00:00Z", aars_gwh
+        return None, "2025-07-01T00:00:00Z", "2026-06-30T23:00:00Z", aars_gwh, None
 
     df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce", utc=False)
     ubrugelige = df["timestamp"].isna()
@@ -253,10 +253,25 @@ def laes_timedata(sti: Path, slugnavn: str, ud_dir: Path, overskriv: bool,
         if getattr(df["timestamp"].dt, "tz", None) is not None:
             df["timestamp"] = df["timestamp"].dt.tz_convert("UTC").dt.tz_localize(None)
     else:
+        lokal = df["timestamp"].dt
         if dubletter.any():
+            # Kun efterårets dobbelttime (kl. 02 den sidste søndag i oktober)
+            # må stå to gange. Alt andet er en fejl i udtrækket, fx en række
+            # med forkert dato, og må ikke ende som dublet i timefilen.
+            tvetydig = lokal.tz_localize("Europe/Copenhagen", ambiguous="NaT",
+                                         nonexistent="shift_forward").isna()
+            uventet = dubletter & ~tvetydig
+            if uventet.any():
+                eks = "; ".join(
+                    f"række {int(r.raekke)}: {r.timestamp:%Y-%m-%d %H:%M}"
+                    for r in df[uventet].head(5).itertuples())
+                raise ArkFejl(
+                    f"{int(uventet.sum())} tidsstempler i Timedata går igen uden at "
+                    f"være efterårets dobbelttime — {eks}. Kun timen kl. 02 den "
+                    "sidste søndag i oktober må stå to gange i dansk tid. Er det en "
+                    "række med forkert dato eller år, så ret den (eller slet den).")
             print(f"    {int(dubletter.sum())} gentagne tidsstempler — det er "
                   "efterårets dobbelttime i dansk tid, som forventet.")
-        lokal = df["timestamp"].dt
         try:
             ts = lokal.tz_localize("Europe/Copenhagen",
                                    nonexistent="shift_forward", ambiguous="infer")
@@ -307,9 +322,8 @@ def laes_timedata(sti: Path, slugnavn: str, ud_dir: Path, overskriv: bool,
     ud = ud_dir / f"{slugnavn}_abvaerk_hourly.csv"
     if ud.exists() and not overskriv:
         raise ArkFejl(f"{ud} findes allerede. Kør med --overskriv, hvis den skal erstattes.")
-    ud.parent.mkdir(parents=True, exist_ok=True)
-    df[["timestamp", "heat_mw_abvaerk"]].to_csv(
-        ud, index=False, date_format="%Y-%m-%d %H:%M:%S")
+    # Selve filen skrives først i main(), når hele arket er valideret, så en
+    # fejl længere nede ikke efterlader en timefil (og kræver --overskriv).
 
     start = df["timestamp"].iloc[0].strftime("%Y-%m-%dT%H:00:00Z")
     slut = df["timestamp"].iloc[-1].strftime("%Y-%m-%dT%H:00:00Z")
@@ -366,7 +380,7 @@ def laes_timedata(sti: Path, slugnavn: str, ud_dir: Path, overskriv: bool,
     if spaend < timedelta(days=300):
         print(f"    Arket dækker {spaend.days} dage, ikke et helt år. "
               "Kørslen virker, men årsøkonomien er ikke et årstal.")
-    return ud, start, slut, aarsvolumen
+    return ud, start, slut, aarsvolumen, df[["timestamp", "heat_mw_abvaerk"]]
 
 
 # --------------------------------------------------------------- varmepumpe
@@ -1053,7 +1067,7 @@ def main() -> int:
             ])
         tz = laes_tidszone(a.ark)
         aars_gwh = laes_aarsproduktion(a.ark)
-        csv_sti, start, slut, aarsvolumen = laes_timedata(
+        csv_sti, start, slut, aarsvolumen, timedf = laes_timedata(
             a.ark, s, a.data_dir, a.overskriv, tz, aars_gwh)
         vp_tabeller = laes_varmepumper(a.ark)
         units = laes_enheder(a.ark, priser, vp_tabeller)
@@ -1122,6 +1136,10 @@ def main() -> int:
 
     # Solvarme: profilen skrives nu, hvor tidsvinduet er kendt, og feltet
     # _sol_gwh byttes ud med den sti, modellen faktisk læser.
+    yaml_sti = a.cases_dir / f"{s}.yaml"
+    if yaml_sti.exists() and not a.overskriv:
+        print(f"\nFEJL: {yaml_sti} findes allerede. Brug --overskriv.", file=sys.stderr)
+        return 1
     for navn, u in units.items():
         if "_sol_gwh" in u:
             profil = a.data_dir / f"{s}_{navn}_profil.csv"
@@ -1138,10 +1156,9 @@ def main() -> int:
                 "sol der kommer ind. Profilen er syntetisk; erstat filen med "
                 "egne måledata, hvis I har dem.")
 
-    yaml_sti = a.cases_dir / f"{s}.yaml"
-    if yaml_sti.exists() and not a.overskriv:
-        print(f"\nFEJL: {yaml_sti} findes allerede. Brug --overskriv.", file=sys.stderr)
-        return 1
+    if csv_sti is not None:
+        csv_sti.parent.mkdir(parents=True, exist_ok=True)
+        timedf.to_csv(csv_sti, index=False, date_format="%Y-%m-%d %H:%M:%S")
     yaml_sti.parent.mkdir(parents=True, exist_ok=True)
     skriv_yaml(yaml_sti, case, vaerk, a.ark, csv_sti)
 
