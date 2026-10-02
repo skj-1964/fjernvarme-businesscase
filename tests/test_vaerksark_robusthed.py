@@ -165,3 +165,76 @@ def test_sen_fejl_efterlader_ingen_timefil(tmp_path):
     assert r.returncode != 0
     assert "Varmepumpe" in r.stdout + r.stderr
     assert not list((tmp_path / "data").glob("*_abvaerk_hourly.csv"))
+
+
+# ------------------------------------------------- Aulum: timeslut-stempler
+# Aulums SRO stempler timen med dens SLUT (01:00 = kl. 00-01). Uden en
+# korrektion ligger hele året en time forkert i forhold til elpriser og vejr,
+# og sidste række (1/7-2026 00:00) falder uden for perioden.
+def _timeslut_serie(wb):
+    import pandas as pd
+    ws = wb["Timedata"]
+    ws["B2"] = "dansk lokaltid"
+    start_utc = pd.date_range("2025-06-30 22:00", periods=8760, freq="h", tz="UTC")
+    stempel = (start_utc + pd.Timedelta(hours=1)).tz_convert("Europe/Copenhagen")
+    for i, (a, s) in enumerate(zip(stempel.tz_localize(None), start_utc)):
+        ws.cell(6 + i, 1).value = a.to_pydatetime()
+        ws.cell(6 + i, 2).value = 1.0 + (s.hour % 24) / 10    # kendeligt mønster
+
+
+def _kør_med(tmp_path, rediger, *flag):
+    import subprocess, sys
+    from tests.test_cop_tabel import REPO_ROOT
+    ark = _byg_og_fyld(tmp_path, rediger)
+    return subprocess.run(
+        [sys.executable, str(REPO_ROOT / "scripts" / "vaerksark_til_yaml.py"),
+         str(ark), "--cases-dir", str(tmp_path / "cases"),
+         "--data-dir", str(tmp_path / "data"), *flag],
+        capture_output=True, text=True, cwd=REPO_ROOT)
+
+
+def test_timeslut_stempler_flyttes_en_time_tilbage(tmp_path):
+    import pandas as pd
+    r = _kør_med(tmp_path, _timeslut_serie, "--timeslut")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "ADVARSEL" not in r.stdout                 # perioden er dækket helt
+    d = pd.read_csv(next((tmp_path / "data").glob("*_abvaerk_hourly.csv")),
+                    parse_dates=["timestamp"])
+    assert len(d) == 8760 and not d.timestamp.duplicated().any()
+    assert d.timestamp.iloc[0] == pd.Timestamp("2025-06-30 22:00")   # 1/7 00:00 dansk
+    assert d.timestamp.iloc[-1] == pd.Timestamp("2026-06-30 21:00")  # 30/6 23:00 dansk
+    # værdien er den, der stod ved timens slut: hver time har sit eget mønster
+    assert d.heat_mw_abvaerk.iloc[0] == pytest.approx(1.0 + 22 / 10)
+
+
+def test_timeslut_uden_flag_stopper_i_stedet_for_at_flytte_tavst(tmp_path):
+    r = _kør_med(tmp_path, _timeslut_serie)
+    assert r.returncode != 0
+    assert "uden for perioden" in r.stdout + r.stderr
+
+
+# ------------------------------------------------- Aulum: brøkdele af en time
+# Aulum skrev min driftstid 0,15 t (9 minutter) og min last 1,3 MW for elkedlen.
+# Konverteren lavede int(0,15) = 0, og casen kunne ikke indlæses i modellen
+# ("min_uptime/min_downtime skal være ≥ 1") — først ved kørsel, ikke ved konvertering.
+def test_brøkdele_af_en_time_rundes_op_og_casen_kan_indlæses(tmp_path):
+    def ret(wb):
+        ws = wb["Anlaeg"]
+        assert ws["A6"].value == "elkedel"
+        ws["D6"] = 1.3                            # min last > 0 → unit commitment
+        ws["J6"] = 0.15
+        ws["K6"] = 0.5
+    r, case = _kør(tmp_path, ret)
+    assert r.returncode == 0, r.stdout + r.stderr
+    u = yaml.safe_load(case.read_text())["units"]["elkedel"]
+    assert u["min_uptime"] == 1 and u["min_downtime"] == 1
+    load_case(str(case))                           # skal ikke kaste
+
+
+def test_halve_timer_over_en_rundes_op(tmp_path):
+    def ret(wb):
+        ws = wb["Anlaeg"]
+        ws["J6"] = 2.5
+    r, case = _kør(tmp_path, ret)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert yaml.safe_load(case.read_text())["units"]["elkedel"]["min_uptime"] == 3

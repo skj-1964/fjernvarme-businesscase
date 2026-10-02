@@ -38,6 +38,7 @@ Skabelonen ligger i doc/vaerksdata_skabelon.xlsx.
 from __future__ import annotations
 
 import argparse
+import math
 import re
 import subprocess
 import sys
@@ -187,7 +188,8 @@ def laes_aarsproduktion(sti: Path) -> float | None:
 
 
 def laes_timedata(sti: Path, slugnavn: str, ud_dir: Path, overskriv: bool,
-                  tz: str, aars_gwh: float | None = None
+                  tz: str, aars_gwh: float | None = None,
+                  timeslut: bool = False
                   ) -> tuple[Path | None, str, str, float, "pd.DataFrame | None"]:
     df = pd.read_excel(sti, sheet_name="Timedata", skiprows=4, usecols=[0, 1])
     df.columns = ["timestamp", "heat_mw_abvaerk"]
@@ -289,6 +291,14 @@ def laes_timedata(sti: Path, slugnavn: str, ud_dir: Path, overskriv: bool,
                   "læst som sommertid. Det flytter én time i året.")
         df["timestamp"] = ts.dt.tz_convert("UTC").dt.tz_localize(None)
         print("    Tidsstempler konverteret fra dansk lokaltid til UTC.")
+
+    if timeslut:
+        # Stemplet er timens SLUT (01:00 = kl. 00-01). Modellen bruger timens
+        # start. Flyttes først efter omregning til UTC, så efterårets
+        # dobbelttime ikke bliver til to ens timer.
+        df["timestamp"] = df["timestamp"] - timedelta(hours=1)
+        print("    Tidsstempler læst som timeslut og flyttet én time tilbage "
+              "(01:00 betyder kl. 00-01).")
 
     df = df.sort_values("timestamp").reset_index(drop=True)
 
@@ -481,6 +491,11 @@ def _vp_kurve(navn: str, punkter: list[dict]) -> tuple[dict, float, float]:
 
 
 # -------------------------------------------------------------------- anlæg
+def _hele_timer(v) -> int:
+    """Min drifts-/stoptid i hele timer, mindst 1 (tom eller 0 → 1)."""
+    return max(1, math.ceil(v)) if v else 1
+
+
 def laes_enheder(sti: Path, priser: dict,
                  vp_tabeller: dict[str, list[dict]] | None = None) -> dict:
     hr = find_raekke(sti, "Anlaeg", "navn")
@@ -517,8 +532,11 @@ def laes_enheder(sti: Path, priser: dict,
             "p_min_heat": tal(r["p_min"], f"række {raekke}, min varme") or 0.0,
             "var_om": tal(r["var_om"], f"række {raekke}, D&V") or 0.0,
             "start_cost": tal(r["start_cost"], f"række {raekke}, startomkostning") or 0.0,
-            "min_uptime": int(tal(r["min_up"], f"række {raekke}, min driftstid") or 1),
-            "min_downtime": int(tal(r["min_down"], f"række {raekke}, min stoptid") or 1),
+            # Modellen regner i hele timer og kræver mindst 1. Brøkdele rundes OP
+            # (0,15 t → 1 t, 2,5 t → 3 t); int() ville give 0 og en case, der
+            # ikke kan indlæses.
+            "min_uptime": _hele_timer(tal(r["min_up"], f"række {raekke}, min driftstid")),
+            "min_downtime": _hele_timer(tal(r["min_down"], f"række {raekke}, min stoptid")),
         }
         punkter = vp_tabeller.pop(navn, None) if vp_tabeller is not None else None
         if type_ == "heat_pump" and punkter:
@@ -1050,6 +1068,10 @@ def main() -> int:
     p.add_argument("--tillad-offentlig", action="store_true",
                    help="Slå vagten mod deltagerdata i git fra. Kun til egne "
                         "referencecases, aldrig til en deltagers data.")
+    p.add_argument("--timeslut", action="store_true",
+                   help="Tidsstemplerne i Timedata er timens SLUT (01:00 = kl. "
+                        "00-01). De flyttes én time tilbage. Uden flaget læses de "
+                        "som timens start.")
     p.add_argument("--overskriv", action="store_true",
                    help="Erstat filer, der allerede findes.")
     a = p.parse_args()
@@ -1074,7 +1096,8 @@ def main() -> int:
         tz = laes_tidszone(a.ark)
         aars_gwh = laes_aarsproduktion(a.ark)
         csv_sti, start, slut, aarsvolumen, timedf = laes_timedata(
-            a.ark, s, a.data_dir, a.overskriv, tz, aars_gwh)
+            a.ark, s, a.data_dir, a.overskriv, tz, aars_gwh,
+            timeslut=a.timeslut)
         vp_tabeller = laes_varmepumper(a.ark)
         units = laes_enheder(a.ark, priser, vp_tabeller)
         # Ingen gasenhed (laes_enheder har ellers stoppet): CO2 spiller ingen
