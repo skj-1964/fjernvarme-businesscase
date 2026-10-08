@@ -594,6 +594,7 @@ class Prices:
     waste_heat: Optional[float] = None
     straw: Optional[float] = None
     flis: Optional[float] = None                  # DKK/MWh_brændsel (flis/træflis)
+    wood_pellets: Optional[float] = None          # DKK/MWh_brændsel (træpiller)
 
     def fuel_price(self, fuel: str) -> float:
         """Returnér råvare-brændselspris i DKK/MWh_brændsel."""
@@ -602,12 +603,14 @@ class Prices:
             "straw": self.straw,
             "waste_heat": self.waste_heat,
             "flis": self.flis,
+            "wood_pellets": self.wood_pellets,
             "solar": 0.0,            # gratis input — marginalomkostning kortsluttes i model.py
         }
         if fuel not in mapping:
             raise KeyError(f"Ukendt brændsel: {fuel}")
         if mapping[fuel] is None:
-            navn = {"straw": "halm", "flis": "flis", "natural_gas": "naturgas",
+            navn = {"straw": "halm", "flis": "flis", "wood_pellets": "træpiller",
+                    "natural_gas": "naturgas",
                     "waste_heat": "overskudsvarme"}.get(fuel, fuel)
             raise ValueError(
                 f"En enhed bruger {navn}, men prisen for {navn} er ikke sat "
@@ -906,6 +909,7 @@ def load_case(
         straw=straw,
         # Ældre cases uden flis bruger halmprisen (uændret adfærd)
         flis=p["flis"]["value"] if "flis" in p else straw,
+        wood_pellets=p["wood_pellets"]["value"] if "wood_pellets" in p else None,
     )
 
     # El

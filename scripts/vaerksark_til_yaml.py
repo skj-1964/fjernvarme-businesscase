@@ -23,6 +23,22 @@ den gamle lineære kurve med fast varmeloft, og konverteringen siger det.
 Er arket Timedata tomt, men årsproduktionen i B3 udfyldt, skrives kun
 casefilen, og varmelasten syntetiseres af modellen ud fra DMI-vejrdata.
 
+Arket Priser læses på etiketterne i kolonne A, ikke på rækkenumre: rækker
+må indsættes og flyttes, men posterne må ikke omdøbes. Brændselsblokken
+kender naturgas, halm, træpiller, flis, overskudsvarme og CO2.
+
+Tre ting er valgfrie og findes ikke i skabelon v4:
+  * Anlaeg, kolonne N 'brændsel': halm, træpiller eller flis pr.
+    biomassekedel. Uden kolonnen bruges det ene biomassebrændsel, der har en
+    pris; har flere en pris, siges valget højt eller kørslen stopper.
+  * Priser, blokken 'Gasafgifter og gastariffer': én række pr. afgift eller
+    tarif med sats, enhed (kr/m3 eller kr/MWh) og hvem den gælder for (alle,
+    kedler, motorer). Det, der gælder alle, lægges på gasprisen. Det, der
+    kun gælder kedler eller motorer, lægges på enhedens D&V pr. MWh varme,
+    fordi modellen ikke har en afgift pr. enhed.
+  * Arket 'Solvarme': målte timeværdier for solvarmen, opbygget som
+    Timedata. Findes det, bruges det i stedet for den syntetiske profil.
+
 og kører derefter:
 
     python run_case.py deltagere/cases/<slug>.yaml --data-source github \
@@ -66,6 +82,17 @@ BRAENDSEL_PR_TYPE = {
 }
 GYLDIGE_TYPER = set(BRAENDSEL_PR_TYPE)
 
+# Biomassebrændsler: arkets ord -> modellens nøgle under prices.
+BIOMASSE = {"halm": "straw", "træpiller": "wood_pellets", "flis": "flis"}
+BIOMASSE_DANSK = {v: k for k, v in BIOMASSE.items()}
+# Hvad kolonnen 'brændsel' må sige for de øvrige typer (den bruges ikke, men
+# en gaskedel, der står til flis, er en fejl i arket og ikke noget at tie om).
+BRAENDSEL_ORD = {
+    "gas_boiler": {"naturgas", "gas"}, "gas_engine_chp": {"naturgas", "gas"},
+    "heat_pump": {"el"}, "electric_boiler": {"el"},
+    "solar_thermal": {"sol", "solvarme"}, "waste_heat": {"overskudsvarme"},
+}
+
 
 class ArkFejl(Exception):
     """Noget i arket kan ikke tolkes. Beskeden går direkte til deltageren."""
@@ -98,6 +125,44 @@ def find_raekke(sti: Path, ark: str, start: str, *, praefiks=False,
         if t == start or (praefiks and t.startswith(start)):
             return i
     return None
+
+
+def _norm(v) -> str:
+    """Etiket til sammenligning: små bogstaver, ét mellemrum, ingen kanter."""
+    return " ".join(v.split()).lower() if isinstance(v, str) else ""
+
+
+def tjek_formler_uden_vaerdi(sti: Path, ark: str = "Anlaeg") -> None:
+    """Stop, hvis en formel i arket ikke har en beregnet værdi i filen.
+
+    pandas læser den værdi, Excel sidst regnede ud. En fil, der er gemt af et
+    script eller et program, der ikke regner formler, har ingen — og så blev
+    en startomkostning skrevet som formel til 0 kr. uden besked."""
+    import openpyxl
+    try:
+        wf = openpyxl.load_workbook(sti, read_only=True, data_only=False)
+        wv = openpyxl.load_workbook(sti, read_only=True, data_only=True)
+    except Exception:
+        return
+    try:
+        if ark not in wf.sheetnames:
+            return
+        uden = []
+        for rf, rv in zip(wf[ark].iter_rows(max_col=14), wv[ark].iter_rows(max_col=14)):
+            for cf, cv in zip(rf, rv):
+                if isinstance(cf.value, str) and cf.value.startswith("=") \
+                        and cv.value is None:
+                    uden.append(f"{cf.coordinate} ({cf.value})")
+    finally:
+        wf.close()
+        wv.close()
+    if uden:
+        raise ArkFejl(
+            f"Arket {ark} har {len(uden)} celler med en formel, som filen ikke "
+            f"har en beregnet værdi for: {', '.join(uden[:6])}"
+            + (" …" if len(uden) > 6 else "") + ". Det sker, når arket er gemt "
+            "af et program, der ikke regner formler ud. Åbn arket i Excel og gem "
+            "det igen, eller skriv tallene i cellerne i stedet for formlerne.")
 
 
 def _regn_formel(f: str):
@@ -137,16 +202,17 @@ def tal(v, felt: str, *, kraev=False):
 
 
 # ------------------------------------------------------------------ timedata
-def laes_tidszone(sti: Path) -> str:
+def laes_tidszone(sti: Path, ark: str = "Timedata") -> str:
     """Deltagerens erklæring, ikke vores gæt.
 
     Modellen regner i UTC, og skabelonen beder om UTC. Men et SRO-udtræk kommer
     ofte i dansk tid, og en deltager, der konverterer i hånden, rammer forkert
     oftere end scriptet gør. Derfor er feltet et valg mellem to værdier — og
     alt andet stopper kørslen frem for at blive tolket."""
-    raa = pd.read_excel(sti, sheet_name="Timedata", header=None, nrows=3)
+    raa = pd.read_excel(sti, sheet_name=ark, header=None, nrows=3)
     try:
-        v = str(raa.iat[1, 1] or "").strip().lower()
+        v = raa.iat[1, 1]
+        v = "" if v is None or (isinstance(v, float) and pd.isna(v)) else str(v).strip().lower()
     except IndexError:
         v = ""
     # Store/små bogstaver og mellemrum (også Excels hårde mellemrum) er ikke
@@ -158,7 +224,7 @@ def laes_tidszone(sti: Path) -> str:
              "cet", "cest"):
         return "Europe/Copenhagen"
     raise ArkFejl(
-        f"Tidszonefeltet i Timedata (celle B2) siger {v!r}. Det skal stå som "
+        f"Tidszonefeltet i {ark} (celle B2) siger {v!r}. Det skal stå som "
         "enten 'UTC' eller 'dansk lokaltid'. Feltet gættes ikke: en forkert "
         "tidszone flytter hele året en eller to timer i forhold til elprisen, "
         "uden at noget ser forkert ud.")
@@ -497,17 +563,25 @@ def _hele_timer(v) -> int:
 
 
 def laes_enheder(sti: Path, priser: dict,
-                 vp_tabeller: dict[str, list[dict]] | None = None) -> dict:
+                 vp_tabeller: dict[str, list[dict]] | None = None,
+                 gasafgift: dict | None = None) -> dict:
     hr = find_raekke(sti, "Anlaeg", "navn")
     if hr is None:
         raise ArkFejl("Arket Anlaeg: overskriften 'navn' i kolonne A er ikke til at "
                       "finde. Slet ikke overskriftsrækken over enhederne.")
     slut = find_raekke(sti, "Anlaeg", "lovlige værdier", praefiks=True, efter=hr)
-    df = pd.read_excel(sti, sheet_name="Anlaeg", skiprows=hr - 1, usecols=range(13),
+    # Kolonne N 'brændsel' er valgfri (findes ikke i skabelon v4).
+    hoved = pd.read_excel(sti, sheet_name="Anlaeg", header=None,
+                          skiprows=hr - 1, nrows=1)
+    har_braendsel = hoved.shape[1] > 13 and _norm(hoved.iat[0, 13]).startswith("brændsel")
+    df = pd.read_excel(sti, sheet_name="Anlaeg", skiprows=hr - 1,
+                       usecols=range(14 if har_braendsel else 13),
                        nrows=(slut - hr - 1) if slut else 19)
     df.columns = ["navn", "type", "p_max", "p_min", "eta", "cop", "eta_el",
                   "var_om", "start_cost", "min_up", "min_down", "balance",
-                  "sol_gwh"]
+                  "sol_gwh"] + (["braendsel"] if har_braendsel else [])
+    if not har_braendsel:
+        df["braendsel"] = None
     df = df.dropna(subset=["navn", "type"])
     if df.empty:
         raise ArkFejl("Arket Anlaeg har ingen enheder med både navn og type.")
@@ -578,14 +652,73 @@ def laes_enheder(sti: Path, priser: dict,
                               "Den skal være en brøkdel, fx 0,95 — ikke 95.")
             u["eta_fuel_to_heat"] = eta
 
+        valg = _norm(r["braendsel"])
         if type_ == "biomass_boiler":
-            if not priser.get("straw") and not priser.get("flis"):
+            # Før oktober 2026 fik ALLE biomassekedler halm, hvis halmprisen var
+            # udfyldt. Et værk med flis- og pillekedler fik fliskedlen regnet
+            # på pilleprisen, uden at lastfordelingen så forkert ud.
+            med_pris = [k for k in ("straw", "wood_pellets", "flis") if priser.get(k)]
+            if valg:
+                if valg not in BIOMASSE:
+                    raise ArkFejl(
+                        f"Række {raekke}: brændslet '{r['braendsel']}' i kolonnen "
+                        "'brændsel' er ikke kendt. Skriv halm, træpiller eller flis.")
+                u["fuel"] = BIOMASSE[valg]
+                if not priser.get(u["fuel"]):
+                    raise ArkFejl(
+                        f"Række {raekke}: '{r['navn']}' fyrer med {valg}, men "
+                        f"prisen for {valg} er ikke udfyldt på arket Priser.")
+            elif not med_pris:
                 raise ArkFejl(
                     f"Række {raekke}: '{r['navn']}' er en biomassekedel, men "
-                    "hverken halm- eller flisprisen er udfyldt på arket Priser.")
-            u["fuel"] = "straw" if priser.get("straw") else "flis"
+                    "hverken halm-, træpille- eller flisprisen er udfyldt på "
+                    "arket Priser.")
+            elif len(med_pris) == 1:
+                u["fuel"] = med_pris[0]
+            elif "wood_pellets" in med_pris:
+                raise ArkFejl(
+                    f"Række {raekke}: '{r['navn']}' er en biomassekedel uden "
+                    "brændsel, og arket Priser har pris for "
+                    + " og ".join(BIOMASSE_DANSK[k] for k in med_pris)
+                    + ". Skriv halm, træpiller eller flis i kolonnen 'brændsel' "
+                    "(kolonne N) ud for kedlen.")
+            elif priser["straw"]["value"] == priser["flis"]["value"]:
+                # Samme pris: valget ændrer ikke resultatet (skabelonens
+                # eksempel står sådan), så det nævnes uden at råbe.
+                u["fuel"] = "straw"
+                print(f"    Række {raekke}: '{r['navn']}' regnes på halm. Halm og "
+                      "flis har samme pris, så valget ændrer ikke resultatet.")
+            else:
+                u["fuel"] = "straw"
+                print(f"\n    ADVARSEL række {raekke}: '{r['navn']}' regnes på halm "
+                      f"({priser['straw']['value']:g} kr/MWh). Både halm og flis "
+                      f"har en pris på arket Priser (flis "
+                      f"{priser['flis']['value']:g}), og kedlen har intet brændsel "
+                      "i kolonne N. Er det en fliskedel, så skriv flis i kolonnen "
+                      "'brændsel' — eller slet den pris, værket ikke bruger.\n")
         else:
+            if valg and valg not in BRAENDSEL_ORD.get(type_, set()):
+                raise ArkFejl(
+                    f"Række {raekke}: '{r['navn']}' er en {type_}, men kolonnen "
+                    f"'brændsel' siger '{r['braendsel']}'. Kolonnen bruges kun "
+                    "for biomassekedler — lad cellen stå tom, eller ret typen.")
             u["fuel"] = BRAENDSEL_PR_TYPE[type_]
+
+        # Gasafgifter og -tariffer, der kun gælder kedler eller kun motorer.
+        # Modellen har ikke en afgift pr. enhed, så de lægges på D&V pr. MWh
+        # varme: afgift pr. MWh gas delt med varmevirkningsgraden.
+        saerlig = (gasafgift or {}).get(
+            {"gas_boiler": "kedler", "gas_engine_chp": "motorer"}.get(type_), 0.0)
+        if saerlig:
+            tillaeg = round(saerlig / u["eta_fuel_to_heat"], 2)
+            hvem = "gaskedler" if type_ == "gas_boiler" else "gasmotorer"
+            u["notes"] = (
+                f"var_om er D&V {u['var_om']:g} + {tillaeg:.2f} kr/MWh varme i "
+                f"gasafgift og -tarif, som kun gælder {hvem} ({saerlig:.2f} kr/MWh "
+                f"gas delt med varmevirkningsgraden {u['eta_fuel_to_heat']:g}).")
+            u["var_om"] = round(u["var_om"] + tillaeg, 2)
+            print(f"    Række {raekke}: '{r['navn']}' får {tillaeg:.2f} kr/MWh varme "
+                  f"lagt på D&V for afgifter, der kun gælder {hvem}.")
 
         if type_ in ("gas_boiler", "gas_engine_chp") and "co2_eua" not in priser:
             raise ArkFejl(
@@ -764,6 +897,169 @@ def laes_tanke(sti: Path) -> dict:
     return storage
 
 
+# ----------------------------------------------------------------- solvarme
+def _solen_er_nede(idx: "pd.DatetimeIndex") -> "np.ndarray":
+    """True for timer (UTC, timestart), hvor solen står mere end 6 grader under
+    horisonten midt i timen. Regnet for 56° N, 10,5° Ø — hele Danmark ligger
+    inden for en halv time af det, og grænsen på 6 grader giver luft."""
+    doy = idx.dayofyear.to_numpy().astype(float)
+    soltid = idx.hour.to_numpy() + 0.5 + 10.5 / 15.0
+    decl = np.deg2rad(23.45 * np.sin(np.deg2rad(360.0 / 365.0 * (doy - 81))))
+    lat = math.radians(56.0)
+    sin_h = (np.sin(lat) * np.sin(decl)
+             + np.cos(lat) * np.cos(decl) * np.cos(np.deg2rad(15.0 * (soltid - 12.0))))
+    return sin_h < math.sin(math.radians(-6.0))
+
+
+def laes_solvarme(sti: Path, timeslut: bool = False):
+    """Målte timeværdier for solvarmen fra arket 'Solvarme', hvis det findes.
+
+    Arket er opbygget som Timedata: tidszone i B2, årsproduktion i B3 (valgfri),
+    overskriften 'tidsstempel' i kolonne A og data under den. Returnerer
+    (serie i UTC med timestart, årstal fra B3) eller (None, None), når arket
+    ikke findes eller er tomt — så bruges den syntetiske profil som hidtil."""
+    try:
+        top = pd.read_excel(sti, sheet_name="Solvarme", header=None, nrows=4)
+    except ValueError:
+        return None, None
+    hr = find_raekke(sti, "Solvarme", "tidsstempel")
+    if hr is None:
+        raise ArkFejl("Arket Solvarme: overskriften 'tidsstempel' i kolonne A er "
+                      "ikke til at finde. Arket skal være opbygget som Timedata.")
+    df = pd.read_excel(sti, sheet_name="Solvarme", header=None, skiprows=hr,
+                       usecols=[0, 1])
+    df.columns = ["timestamp", "mw"]
+    df["raekke"] = df.index + hr + 1
+    df = df.dropna(subset=["timestamp", "mw"], how="all")
+    if df["mw"].dropna().empty:
+        print("    Arket Solvarme er tomt. Solvarmen får den syntetiske profil.")
+        return None, None
+    tz = laes_tidszone(sti, "Solvarme")
+    try:
+        b3 = tal(top.iat[2, 1], "Solvarme: årsproduktion (celle B3)")
+    except IndexError:
+        b3 = None
+
+    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce", utc=False)
+    if df["timestamp"].isna().any():
+        foerste = int(df.loc[df["timestamp"].isna(), "raekke"].iloc[0])
+        raise ArkFejl(f"Arket Solvarme har tidsstempler, der ikke kan læses som "
+                      f"en dato — første gang i række {foerste}.")
+    df = df.dropna(subset=["mw"])
+    maalt = pd.to_numeric(df["mw"], errors="coerce")
+    if maalt.isna().any():
+        eks = "; ".join(f"række {int(r.raekke)}: {r.mw!r}"
+                        for r in df[maalt.isna()].head(5).itertuples())
+        raise ArkFejl(f"{int(maalt.isna().sum())} værdier i kolonne B i Solvarme er "
+                      f"tekst og ikke tal — {eks}. Lad cellen stå tom, eller skriv "
+                      "tallet.")
+    df["mw"] = maalt
+    if (df["mw"] < 0).any():
+        r = df[df["mw"] < 0].iloc[0]
+        raise ArkFejl(f"{int((df['mw'] < 0).sum())} værdier i Solvarme er negative, "
+                      f"første gang i række {int(r.raekke)}. Varme sendt ud i "
+                      "solfeltet (frostsikring) er ikke produktion — sæt de timer "
+                      "til 0, eller lad dem stå tomme.")
+    df = df.sort_values("timestamp").reset_index(drop=True)
+    if tz == "UTC":
+        if df["timestamp"].duplicated().any():
+            r = df[df["timestamp"].duplicated()].iloc[0]
+            raise ArkFejl(f"Tidsstempler går igen i Solvarme, første gang "
+                          f"{r.timestamp} (række {int(r.raekke)}).")
+        if getattr(df["timestamp"].dt, "tz", None) is not None:
+            df["timestamp"] = df["timestamp"].dt.tz_convert("UTC").dt.tz_localize(None)
+    else:
+        try:
+            ts = df["timestamp"].dt.tz_localize(
+                "Europe/Copenhagen", nonexistent="shift_forward", ambiguous="infer")
+        except Exception:
+            ts = df["timestamp"].dt.tz_localize(
+                "Europe/Copenhagen", nonexistent="shift_forward", ambiguous=True)
+        df["timestamp"] = ts.dt.tz_convert("UTC").dt.tz_localize(None)
+        print("    Solvarme: tidsstempler konverteret fra dansk lokaltid til UTC.")
+    if timeslut:
+        df["timestamp"] = df["timestamp"] - timedelta(hours=1)
+    return df.set_index("timestamp")["mw"], b3
+
+
+def skriv_maalt_solprofil(sti: Path, serie: "pd.Series", start: str, slut: str,
+                          navn: str, p_max: float, anlaeg_gwh: float,
+                          b3_gwh: float | None) -> str:
+    """Skriv den målte solserie som profil for hele kørselsvinduet.
+
+    Vinduet rundes ud til hele døgn, så et kald med --end på periodens sidste
+    dag ikke stopper på to manglende nattetimer. Huller inde i serien udfyldes
+    lineært (højst 5 %); manglende timer i enderne sættes kun til 0, hvis
+    solen er nede i dem alle. Returnerer teksten til enhedens notes."""
+    t0 = pd.Timestamp(start[:10] + " 00:00")
+    t1 = pd.Timestamp(slut[:10] + " 23:00")
+    idx = pd.date_range(t0, t1, freq="h")
+    uden_for = int((~serie.index.isin(idx)).sum())
+    if uden_for:
+        print(f"    Solvarme: {uden_for} timer ligger uden for kørselsvinduet "
+              f"{t0:%d/%m/%Y}–{t1:%d/%m/%Y} og bruges ikke.")
+    s = serie[serie.index.isin(idx)].reindex(idx)
+    if s.notna().sum() == 0:
+        raise ArkFejl("Arket Solvarme har ingen værdier inden for den periode, "
+                      "Timedata dækker.")
+    foerste, sidste = s.first_valid_index(), s.last_valid_index()
+    ender = (idx < foerste) | (idx > sidste)
+    nede = _solen_er_nede(idx)
+    if ender.any():
+        n_start, n_slut = int((idx < foerste).sum()), int((idx > sidste).sum())
+        if not nede[ender].all():
+            raise ArkFejl(
+                f"Arket Solvarme dækker ikke perioden: der mangler {n_start} timer "
+                f"i starten og {n_slut} i slutningen (serien går fra "
+                f"{foerste:%d/%m/%Y %H:%M} til {sidste:%d/%m/%Y %H:%M} UTC), og "
+                "nogle af dem er dagtimer. Solprofilen nulfyldes ikke.")
+        s[ender] = 0.0
+        dele = ([f"{n_start} timer først" ] if n_start else []) + \
+               ([f"{n_slut} timer sidst"] if n_slut else [])
+        print(f"    Solvarme: {' og '.join(dele)} i perioden står tomme. Det er "
+              "nattetimer, og de er sat til 0.")
+    huller = int(s.isna().sum())
+    if huller:
+        if huller > 0.05 * len(idx):
+            raise ArkFejl(f"Arket Solvarme mangler {huller} timer inde i serien "
+                          f"({huller / len(idx):.1%}). Over 5 % udfyldes ikke.")
+        s = s.interpolate(limit_area="inside")
+        print(f"    Solvarme: {huller} tomme timer inde i serien er udfyldt ved "
+              "lineær interpolation.")
+
+    gwh, spids = float(s.sum() / 1000.0), float(s.max())
+    linje = (f"  Solvarmeprofil (målt, arket Solvarme): {len(s)} timer, "
+             f"{gwh:.2f} GWh, spids {spids:.1f} MW. Anlaeg siger {anlaeg_gwh:g} GWh "
+             f"({(gwh - anlaeg_gwh) / anlaeg_gwh:+.0%})")
+    if b3_gwh:
+        linje += f", Solvarme!B3 siger {b3_gwh:g} GWh"
+    print(linje + ". Modellen bruger timeserien.")
+    if spids > p_max + 1e-9:
+        print(f"    ADVARSEL: solserien når {spids:.1f} MW, men maks varme i Anlaeg "
+              f"er {p_max:g} MW. Modellen klipper profilen ved {p_max:g} MW.")
+
+    # Sol om natten er frostsikring eller en måler, der tæller begge veje.
+    nat = s[nede]
+    if nat.sum() > 0.002 * s.sum() or nat.max() > 0.05 * spids:
+        top3 = "; ".join(f"{ts:%Y-%m-%d %H:%M} ({v:.1f} MW)"
+                         for ts, v in nat.nlargest(3).items())
+        print(f"\n    ADVARSEL: solserien har produktion om natten — "
+              f"{int((nat > 0.01 * spids).sum())} timer med i alt {nat.sum():.0f} MWh, "
+              f"mens solen er nede (UTC). Størst: {top3}. Er det frostsikring "
+              "(varme sendt UD i solfeltet) eller en måler, der tæller begge veje, "
+              "er det ikke produktion. Modellen regner timerne som gratis varme, "
+              "som de står i arket.\n")
+
+    sti.parent.mkdir(parents=True, exist_ok=True)
+    ud = pd.DataFrame({"time": idx.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                       "power_mw": s.to_numpy()})
+    ud.to_csv(sti, index=False, float_format="%.6f")
+    print(f"    → {sti}")
+    return ("p_max_heat er værkets tal for største soleffekt. Profilen er "
+            f"værkets egne timeværdier fra arket Solvarme ({gwh:.2f} GWh, spids "
+            f"{spids:.1f} MW) — ikke syntese.")
+
+
 def skriv_solprofil(sti: Path, start: str, slut: str, aars_gwh: float) -> None:
     """Syntetisk solvarmeprofil, der dækker HELE kørselsvinduet.
 
@@ -852,23 +1148,139 @@ def laes_priser(sti: Path) -> tuple[dict, dict, dict]:
             return regnet
         return v
 
-    navne = {"naturgas": "natural_gas", "halm": "straw", "flis": "flis",
-             "overskudsvarme": "waste_heat", "CO2": "co2_eua"}
+    # Posterne findes på etiketten i kolonne A. Før oktober 2026 blev de læst
+    # på faste rækkenumre: en omdøbt række (halm -> træpiller) blev læst som
+    # halm, og seks indsatte rækker gav "DMI-område '4.74' er ikke kendt".
+    etiketter = [_norm(v) for v in raa.iloc[:, 0]]
+
+    def find(tekst, *, praefiks=False, kraev=True, efter=-1, hvad=None):
+        for i, e in enumerate(etiketter):
+            if i > efter and (e.startswith(tekst) if praefiks else e == tekst):
+                return i
+        if kraev:
+            raise ArkFejl(
+                f"Priser: rækken '{hvad or tekst}' er ikke til at finde i kolonne A. "
+                "Rækker må flyttes, men posterne må ikke slettes eller omdøbes — "
+                "lad værdien stå tom, hvis posten ikke bruges.")
+        return None
+
+    def blok(hoved_raekke):
+        """Rækkerne under en overskriftsrække, til første tomme celle i A."""
+        i = hoved_raekke + 1
+        while i < len(etiketter) and etiketter[i]:
+            yield i
+            i += 1
+
+    navne = {"naturgas": "natural_gas", "halm": "straw", "træpiller": "wood_pellets",
+             "flis": "flis", "overskudsvarme": "waste_heat"}
     # CO2 opgives pr. ton CO2. Modellen ganger selv med enhedens
     # co2_emissions_per_mwh_fuel (0,2 t CO2 pr. MWh naturgas), så et tal pr.
     # MWh gas her ville blive ganget med 0,2 én gang for meget.
     enheder = {"co2_eua": "DKK/t_CO2"}
     priser = {}
-    for i, (dansk, noegle) in enumerate(navne.items()):
-        v = tal(celle(5 + i, 1), f"Priser: {dansk}")
+    for i in blok(find("brændsel", hvad="brændsel (overskriften over brændselspriserne)")):
+        noegle = "co2_eua" if etiketter[i].startswith("co2") else navne.get(etiketter[i])
+        if noegle is None:
+            raise ArkFejl(
+                f"Priser række {i + 1}: '{raa.iat[i, 0]}' står blandt "
+                "brændselspriserne, men er ikke et brændsel, konverteringen "
+                "kender (naturgas, halm, træpiller, flis, overskudsvarme, CO2). "
+                "Gasafgifter og -tariffer hører til i blokken 'Gasafgifter og "
+                "gastariffer'. Er det et andet brændsel, så skriv til os.")
+        if noegle in priser:
+            raise ArkFejl(f"Priser række {i + 1}: '{raa.iat[i, 0]}' står to gange.")
+        v = tal(celle(i, 1), f"Priser: {raa.iat[i, 0]}")
         if v is not None:
             priser[noegle] = {"value": v,
                               "unit": enheder.get(noegle, "DKK/MWh_fuel")}
 
-    afgift = tal(celle(13, 1), "Priser: elafgift", kraev=True)
-    energinet = tal(celle(14, 1), "Priser: Energinet-tarif", kraev=True)
-    dv = tal(celle(15, 1), "Priser: drift og vedligehold") or 0.0
-    prod = tal(celle(16, 1), "Priser: produktionstarif") or 0.0
+    # ------------------------------------------------ gasafgifter og -tariffer
+    # Valgfri blok. Værker opgør gassens afgifter pr. m3, og nogle af dem
+    # gælder kun motorer (metanafgift) eller kun kedler. 'alle' lægges på
+    # gasprisen; 'kedler' og 'motorer' føres videre til laes_enheder.
+    gasafgift = {"alle": 0.0, "kedler": 0.0, "motorer": 0.0}
+    ga = find("gasafgifter", praefiks=True, kraev=False)
+    if ga is not None:
+        gh = find("post", efter=ga, kraev=False)
+        if gh is None or not _norm(celle(gh, 3)).startswith("gælder"):
+            raise ArkFejl(
+                "Priser: blokken 'Gasafgifter og gastariffer' mangler sin "
+                "overskriftsrække: post, sats, enhed, gælder for.")
+        hvem_ord = {"alle": "alle", "alle gasenheder": "alle",
+                    "kedler": "kedler", "gaskedler": "kedler",
+                    "motorer": "motorer", "gasmotorer": "motorer"}
+        kwh_m3, poster = None, []
+        for i in blok(gh):
+            post = str(raa.iat[i, 0]).strip()
+            sats = tal(celle(i, 1), f"Priser række {i + 1}: {post}")
+            if sats is None:
+                continue
+            enhed = _norm(celle(i, 2)).replace("³", "3").replace(" ", "")
+            if etiketter[i].startswith("brændværdi"):
+                if enhed not in ("kwh/m3", "kwh/nm3"):
+                    raise ArkFejl(f"Priser række {i + 1}: brændværdien skal stå i "
+                                  f"kWh/m3, ikke '{celle(i, 2)}'.")
+                if not 9.0 <= sats <= 13.0:
+                    raise ArkFejl(
+                        f"Priser række {i + 1}: brændværdien {sats:g} kWh/m3 ser "
+                        "forkert ud. Naturgas ligger omkring 11,0 (nedre) til "
+                        "12,2 (øvre) kWh/m3.")
+                kwh_m3 = sats
+                continue
+            hvem = hvem_ord.get(_norm(celle(i, 3)))
+            if hvem is None:
+                raise ArkFejl(
+                    f"Priser række {i + 1}: 'gælder for' for posten '{post}' er "
+                    f"'{celle(i, 3)}'. Skriv alle, kedler eller motorer.")
+            if enhed not in ("kr/m3", "kr/nm3", "kr/mwh"):
+                raise ArkFejl(
+                    f"Priser række {i + 1}: enheden for '{post}' er "
+                    f"'{celle(i, 2)}'. Skriv kr/m3 eller kr/MWh.")
+            poster.append((i, post, sats, enhed, hvem))
+        for i, post, sats, enhed, hvem in poster:
+            if enhed != "kr/mwh":
+                if kwh_m3 is None:
+                    raise ArkFejl(
+                        f"Priser række {i + 1}: '{post}' står i kr/m3, men "
+                        "blokken har ingen række 'brændværdi naturgas' i kWh/m3. "
+                        "Uden den kan satsen ikke regnes om til kr/MWh gas.")
+                sats = sats / kwh_m3 * 1000.0
+            gasafgift[hvem] += sats
+        if poster:
+            if "natural_gas" not in priser:
+                raise ArkFejl("Priser: der er gasafgifter, men naturgasprisen er "
+                              "ikke udfyldt.")
+            print(f"  Gasafgifter og -tariffer ({len(poster)} poster"
+                  + (f", {kwh_m3:g} kWh/m3" if kwh_m3 else "") + "): "
+                  f"alle gasenheder {gasafgift['alle']:.2f}, kun kedler "
+                  f"{gasafgift['kedler']:.2f}, kun motorer "
+                  f"{gasafgift['motorer']:.2f} kr/MWh gas.")
+            if gasafgift["alle"]:
+                uden = priser["natural_gas"]["value"]
+                priser["natural_gas"]["value"] = round(uden + gasafgift["alle"], 2)
+                priser["natural_gas"]["note"] = (
+                    f"{uden:g} kr/MWh ekskl. afgifter + {gasafgift['alle']:.2f} "
+                    "kr/MWh i afgifter og tariffer, der gælder alle gasenheder.")
+                print(f"    Gasprisen i modellen: {uden:g} + "
+                      f"{gasafgift['alle']:.2f} = "
+                      f"{priser['natural_gas']['value']:.2f} kr/MWh.")
+
+    # De faste elled søges under deres egen overskrift, så en gaspost som
+    # 'Energinet transmissionstarif' i blokken ovenfor ikke bliver til eltarif.
+    el_fra = find("elafgift og", praefiks=True, kraev=False)
+    el_fra = -1 if el_fra is None else el_fra
+    afgift = tal(celle(find("elafgift efter", praefiks=True, efter=el_fra,
+                            hvad="elafgift efter elvarmegodtgørelse"), 1),
+                 "Priser: elafgift", kraev=True)
+    energinet = tal(celle(find("energinet", praefiks=True, efter=el_fra,
+                               hvad="Energinet (transmission+system+balance)"), 1),
+                    "Priser: Energinet-tarif", kraev=True)
+    dv = tal(celle(find("netselskabets", praefiks=True, efter=el_fra,
+                        hvad="netselskabets drift og vedligehold"), 1),
+             "Priser: drift og vedligehold") or 0.0
+    prod = tal(celle(find("indfødningstarif", praefiks=True, efter=el_fra,
+                          hvad="indfødningstarif"), 1),
+               "Priser: produktionstarif") or 0.0
 
     # Ét sæt tidsperioder (N1's inddeling, se byg_skabelon.py), men satserne
     # må være forskellige vinter og sommer. Sommerens bånd får da egne navne
@@ -876,11 +1288,14 @@ def laes_priser(sti: Path) -> tuple[dict, dict, dict]:
     # Før september 2026 gemte konverteringen kun én sats pr. båndnavn og
     # brugte vintertallet hele året — arket spurgte om sommersatsen og
     # smed svaret væk.
-    baand_navne = ["lav", "hoej", "spids"]
+    baand_raekker = {"lav": find("lavlast"), "hoej": find("højlast"),
+                     "spids": find("spidslast", kraev=False)}
     vinter_v, sommer_v = {}, {}
-    for i, b in enumerate(baand_navne):
-        vi = tal(celle(21 + i, 1), f"Priser: {b}, vinter")
-        so = tal(celle(21 + i, 2), f"Priser: {b}, sommer")
+    for b, rk in baand_raekker.items():
+        if rk is None:
+            continue
+        vi = tal(celle(rk, 1), f"Priser: {b}, vinter")
+        so = tal(celle(rk, 2), f"Priser: {b}, sommer")
         if vi is not None:
             vinter_v[b] = vi
         if so is not None:
@@ -939,15 +1354,19 @@ def laes_priser(sti: Path) -> tuple[dict, dict, dict]:
         },
     }
 
-    omraade = str(celle(27, 1) or "").strip().lower()
+    def tekst(v):
+        return "" if v is None or (isinstance(v, float) and pd.isna(v)) else str(v).strip()
+
+    omraade = tekst(celle(find("nærmeste dmi", praefiks=True,
+                               hvad="nærmeste DMI-område"), 1)).lower()
     if omraade not in KENDTE_DMI_OMRAADER:
         raise ArkFejl(f"Priser: DMI-område '{omraade}' er ikke kendt. "
                       f"Vælg {', '.join(KENDTE_DMI_OMRAADER[:-1])} eller "
                       f"{KENDTE_DMI_OMRAADER[-1]}.")
-    zone = str(celle(28, 1) or "").strip().upper()
+    zone = tekst(celle(find("priszone"), 1)).upper()
     if zone not in ("DK1", "DK2"):
         raise ArkFejl(f"Priser: priszone '{zone}' er ikke kendt. Vælg DK1 eller DK2.")
-    vaerk = str(celle(29, 1) or "").strip()
+    vaerk = tekst(celle(find("værkets navn"), 1))
 
     el = {"spot_area": zone, "tariff_consumption_flat": round(
         energinet + dv + bands.get("hoej", 0.0), 1),
@@ -955,7 +1374,7 @@ def laes_priser(sti: Path) -> tuple[dict, dict, dict]:
         "tariff_production_flat": prod,
         "electricity_tax": afgift}
     data = {"dmi_area": omraade, "price_zone": zone}
-    return priser, el, {"data": data, "vaerk": vaerk}
+    return priser, el, {"data": data, "vaerk": vaerk, "gasafgift": gasafgift}
 
 
 # --------------------------------------------------------------------- YAML
@@ -980,6 +1399,16 @@ def skriv_yaml(sti: Path, d: dict, vaerk: str, kilde: Path,
 
     d = _rent(d)
 
+    if any(str(u.get("production_profile_path", "")).endswith("_maalt.csv")
+           for u in d["units"].values()):
+        punkt5 = ("#   5. solvarmeprofilen er værkets egne timeværdier fra arket Solvarme,\n"
+                  "#      ikke syntese. Står der produktion om natten i serien, regner\n"
+                  "#      modellen den som gratis varme — se konverteringens advarsel.")
+    else:
+        punkt5 = ("#   5. solvarmeprofilen er syntetisk: plausibel fysik skaleret til den\n"
+                  "#      årsproduktion, du opgav. Har I egne soltimeværdier, så læg dem i\n"
+                  "#      et ark 'Solvarme' (opbygget som Timedata), eller erstat filen —\n"
+                  "#      kolonnerne er time (UTC, ISO 8601) og power_mw.")
     hoved = f"""\
 # ==============================================================================
 # {vaerk.upper()}
@@ -1003,9 +1432,7 @@ def skriv_yaml(sti: Path, d: dict, vaerk: str, kilde: Path,
 #   4. p_max_heat er hver enheds loft ifølge typeskiltet, ikke et mål. For
 #      solvarme er det nameplate, og profilen binder reelt langt lavere —
 #      ser du 22 MW her og 8 MW i resultatet, er det profilen, der virker.
-#   5. solvarmeprofilen er syntetisk: plausibel fysik skaleret til den
-#      årsproduktion, du opgav. Har I egne soltimeværdier, så erstat filen —
-#      kolonnerne er time (UTC, ISO 8601) og power_mw.
+{punkt5}
 # ==============================================================================
 """
     with sti.open("w", encoding="utf-8") as f:
@@ -1092,14 +1519,24 @@ def main() -> int:
                 ("casefil", a.cases_dir / f"{s}.yaml"),
                 ("timedata", a.data_dir / f"{s}_abvaerk_hourly.csv"),
                 ("profiler", a.data_dir / f"{s}_solvarme_profil.csv"),
+                ("profiler", a.data_dir / f"{s}_solvarme_maalt.csv"),
             ])
         tz = laes_tidszone(a.ark)
         aars_gwh = laes_aarsproduktion(a.ark)
         csv_sti, start, slut, aarsvolumen, timedf = laes_timedata(
             a.ark, s, a.data_dir, a.overskriv, tz, aars_gwh,
             timeslut=a.timeslut)
+        tjek_formler_uden_vaerdi(a.ark, "Anlaeg")
         vp_tabeller = laes_varmepumper(a.ark)
-        units = laes_enheder(a.ark, priser, vp_tabeller)
+        units = laes_enheder(a.ark, priser, vp_tabeller, meta["gasafgift"])
+        solserie, sol_b3 = laes_solvarme(a.ark, timeslut=a.timeslut)
+        sol_enheder = [n for n, u in units.items() if "_sol_gwh" in u]
+        if solserie is not None and len(sol_enheder) != 1:
+            raise ArkFejl(
+                "Arket Solvarme har timeværdier, men Anlaeg har "
+                + ("ingen solvarmeenhed (type solar_thermal)." if not sol_enheder
+                   else f"{len(sol_enheder)} solvarmeenheder. Arket kan kun "
+                        "bruges, når der er præcis én — læg dem sammen i Anlaeg."))
         # Ingen gasenhed (laes_enheder har ellers stoppet): CO2 spiller ingen
         # rolle, men casen skal have feltet for at kunne indlæses.
         priser.setdefault("co2_eua", {"value": 0.0, "unit": "DKK/t_CO2"})
@@ -1170,7 +1607,21 @@ def main() -> int:
         print(f"\nFEJL: {yaml_sti} findes allerede. Brug --overskriv.", file=sys.stderr)
         return 1
     for navn, u in units.items():
-        if "_sol_gwh" in u:
+        if "_sol_gwh" in u and solserie is not None:
+            profil = a.data_dir / f"{s}_{navn}_maalt.csv"
+            if profil.exists() and not a.overskriv:
+                print(f"\nFEJL: {profil} findes allerede. Brug --overskriv.",
+                      file=sys.stderr)
+                return 1
+            try:
+                u["notes"] = skriv_maalt_solprofil(
+                    profil, solserie, start, slut, navn, u["p_max_heat"],
+                    u.pop("_sol_gwh"), sol_b3)
+            except ArkFejl as e:
+                print(f"\nArket kan ikke bruges endnu:\n  {e}\n", file=sys.stderr)
+                return 1
+            u["production_profile_path"] = profil.as_posix()
+        elif "_sol_gwh" in u:
             profil = a.data_dir / f"{s}_{navn}_profil.csv"
             if profil.exists() and not a.overskriv:
                 print(f"\nFEJL: {profil} findes allerede. Brug --overskriv.",
