@@ -46,12 +46,18 @@
 # plausible, men ingen har besluttet dem. Til dit eget værk skal de erstattes.
 #
 # Forventning ved kørsel uden balancering: MILP (halmkedlen har min-driftstid
-# og min-last), halmkedel som grundlast (ca. 55 % af varmen), solvarme ca.
-# 12 %, sommer-curtailment når tanken er fuld.
+# og min-last), halmkedel som grundlast (ca. 53 % af varmen), solvarme ca.
+# 11 %. Målt 7. oktober 2026 på det rullende år: al solvarmen udnyttes, ingen
+# curtailment.
 #
 # Teknisk: filen bruger enhedstypen solar_thermal, hvis effekt bindes af en
-# tidsserie (data/synthetic_solar_andeby.csv), ikke kun af nameplate. Profilen
-# er syntetisk (scripts/generate_solar_andeby.py) og dækker 2025–2026.
+# tidsserie (data/solar_andeby_dmi_karup.csv), ikke kun af nameplate. Profilen
+# er regnet af MÅLT globalstråling og udetemperatur for DMI-området karup
+# (scripts/solprofil_fra_dmi.py) og skaleret til 12 GWh for det rullende år.
+# Den dækker 1. januar 2025 – 3. oktober 2026; skal vinduet længere frem, så
+# opdatér df-data og kør scriptet igen. Den tidligere syntetiske profil
+# (data/synthetic_solar_andeby.csv) gav sol alle årets dage og 2-3 gange for
+# meget solvarme november-februar.
 # ==============================================================================
 
 meta:
@@ -383,16 +389,16 @@ units:
   solvarme:
     enabled: true
     type: "solar_thermal"
-    p_max_heat: 22.0                 # nameplate; profil binder reelt ~8,3 MW peak
+    p_max_heat: 22.0                 # nameplate; profilen topper ved ca. 19 MW
     p_min_heat: 0.0
     alpha: 0.0
     fuel: "solar"
     var_om: 0.0
     start_cost: 0.0
     uc_enabled: false
-    production_profile_path: "data/synthetic_solar_andeby.csv"
+    production_profile_path: "data/solar_andeby_dmi_karup.csv"
     ancillary: {afrr_qualified: false, mfrr_qualified: false, fcr_qualified: false}
-    notes: "Syntetisk profil i trin 1; udskiftes med DMI-solstråling/måledata senere."
+    notes: "Profil fra målt DMI-globalstråling (karup) og solfangerligning; se scripts/solprofil_fra_dmi.py."
 
 # ------------------------------------------------------------------------------
 # VARMELAGER — mindre tank end Billund (10.000 m³)
