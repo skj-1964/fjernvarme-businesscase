@@ -100,3 +100,6 @@ logs/
 *.mps
 *.sol
 HiGHS.log
+
+# Fiktive markeder bygget af scripts/fiktivt_balancemarked.py
+data/df-data-*/

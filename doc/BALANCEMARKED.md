@@ -138,6 +138,44 @@ periode for ét værk og kan ikke overføres til andre værker eller perioder.
 
 ---
 
+## Fiktivt 2026-marked (scenarie)
+
+Balancemarkedet skiftede omkring årsskiftet 2025/26: aFRR-kapacitetsprisen faldt
+til en fjerdedel, og mFRR blev det største marked. Et år, der går fra juli 2025
+til juni 2026, blander derfor to markeder. Vil du regne et helt år på
+2026-niveau, kan du bygge et **fiktivt** marked:
+
+```bash
+python scripts/fiktivt_balancemarked.py
+```
+
+Scriptet kopierer `data/df-data` til `data/df-data-2026niveau` (git-ignoreret)
+og skalerer balancepriserne for opregulering i DK1 i juli–december 2025, så hver
+måned får samme gennemsnit som januar–juni 2026:
+
+- aFRR- og mFRR-kapacitetspriserne ganges med én faktor pr. måned.
+- Aktiveringspriserne skaleres på præmien over spot, kun i kvarterer hvor
+  prisen ligger over spot. Timingen og sammenhængen med spotprisen bevares.
+- Spot, vejr, mængder, nedregulering og alle andre måneder er urørt.
+
+Faktorerne skrives i `faktorer.json` og `FIKTIVT_MARKED.md` i målmappen. Periode,
+reference og priszone kan vælges (`--periode`, `--reference`, `--zone`); se
+`--help`.
+
+Kør derefter med `--df-data-cache`:
+
+```bash
+python run_case.py cases/billund_idag.yaml --data-source github --with-balancing \
+    --df-data-cache data/df-data-2026niveau \
+    --heat-csv data/billund_abvaerk_hourly_splejset_jun2026.csv
+```
+
+`cases/billund_idag.yaml` er Billunds anlæg i dag (den nye elkedel med,
+varmepumpen byder hele året) og er brugt i rapport v4, afsnit 4.5. Casen og
+markedet er scenarier: de er ikke valideret og beskriver ikke et bestemt år.
+Tal regnet på dem må ikke præsenteres som data. Byg markedet igen
+(`--overskriv`), når `df-data` er opdateret.
+
 ## Validering mod Billunds afregning
 
 ```bash

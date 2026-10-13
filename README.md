@@ -177,6 +177,10 @@ api.sysapp.dk, og Energi Data Service bruges til kontrol. Aktuel dækning står 
 [`DATA_VERSION.md`](https://github.com/skj-1964/df-data/blob/main/DATA_VERSION.md).
 Friske data: `git -C data/df-data pull`.
 
+Til scenarier kan `scripts/fiktivt_balancemarked.py` bygge et fiktivt marked,
+hvor 2. halvår 2025 er skaleret til 2026-niveau; se
+[`doc/BALANCEMARKED.md`](doc/BALANCEMARKED.md#fiktivt-2026-marked-scenarie).
+
 Casen skal angive DMI-område og priszone (`data.dmi_area`, `data.price_zone`).
 Områderne er `fyn`, `vestkyst`, `karup` og `ringsted` (Sjælland og øerne).
 Valget af område alene flytter objektivet med op til ca. 4 %.
@@ -187,10 +191,11 @@ Valget af område alene flytter objektivet med op til ca. 4 %.
 
 ```
 fjernvarme-businesscase/
-├── cases/          # andeby.yaml, billund_sporA/B(_rullende).yaml, heat_load_params_*
+├── cases/          # andeby.yaml, billund_sporA/B(_rullende).yaml, billund_idag.yaml, heat_load_params_*
 ├── src/            # model, dataloadere, balancemarked, tarif, nettab, rapportering
 ├── scripts/        # vaerksark_til_yaml.py, byg_skabelon.py, capture_rate.py,
-│                   # calibrate_heat_load.py, solprofil_fra_dmi.py m.fl.
+│                   # calibrate_heat_load.py, solprofil_fra_dmi.py,
+│                   # fiktivt_balancemarked.py m.fl.
 ├── tests/          # pytest
 ├── data/           # Billunds måledata, Andebys solprofil; df-data/ hentes automatisk
 ├── deltagere/      # egne værkers ark, cases og data (git-ignoreret)
@@ -199,8 +204,8 @@ fjernvarme-businesscase/
 └── requirements.txt
 ```
 
-`data/df-data/`, `data/raw/`, `output/` og `deltagere/` oprettes ved kørsel og
-er git-ignoreret.
+`data/df-data/`, `data/df-data-*/`, `data/raw/`, `output/` og `deltagere/`
+oprettes ved kørsel og er git-ignoreret.
 
 ---
 
