@@ -23,26 +23,42 @@ Vi tager imod alt der gør modellen mere brugbar for danske fjernvarme­selskabe
 1. **Fork repoet** på GitHub (tryk *Fork*)
 2. **Klon jeres fork** og opret en branch:
    ```bash
-   git clone https://github.com/<jer>/fjernvarme-businesscase.git
+   git clone https://github.com/<jeres-konto>/fjernvarme-businesscase.git
    cd fjernvarme-businesscase
    git checkout -b min-tilføjelse
    ```
 3. **Lav ændringen.** Hvis det er en ny case, lægges den i `cases/`. Hvis
    det er en model-udvidelse, kommer ændringerne i `src/`. Tilpas
    dokumentation hvor relevant.
-4. **Test at den kørte 2×2-matrix stadig virker** før I sender — det er den
-   primære smoke-test:
+4. **Test før I sender.** Hent først `df-data`. Uden den springer `pytest`
+   alle tests over, og udskriften ligner et grønt resultat
+   (`394 skipped`), selvom intet er testet:
    ```bash
-   python run_case.py cases/billund_sporA_rullende.yaml \
-       --data-source github --with-balancing
+   git clone --depth 1 https://github.com/skj-1964/df-data.git data/df-data
+   python -m pytest -q tests          # forventet: 393 passed, 1 skipped
    ```
+   Står der kun `skipped`, mangler `data/df-data/`. Har I en ældre klon, så
+   opdatér den med `git -C data/df-data pull`.
+
+   Kør derefter ankeret, som skal give samme tal som før jeres ændring
+   (ca. 2 minutter):
+   ```bash
+   python run_case.py cases/billund_sporA.yaml --data-source github --with-balancing
+   # Objektiv: 4,697,269 DKK
+   ```
+   Ændrer I noget, der flytter tallene med vilje, så skriv det gamle og det
+   nye tal i PR'en, og ret referencetallene i README.
 5. **Commit og push:**
    ```bash
    git add .
    git commit -m "Tilføj <kort beskrivelse>"
    git push origin min-tilføjelse
    ```
-6. **Åbn en Pull Request** mod upstream `main`-branchen. Beskriv kort:
+6. **Verificér efter push.** Klon jeres branch på ny i en tom mappe, og
+   kør trin 4 der. Tjek også, at ingen filer har skiftet rettighed
+   (`git show --summary HEAD` må ikke vise `mode change`) — det sker let
+   under WSL.
+7. **Åbn en Pull Request** mod upstream `main`-branchen. Beskriv kort:
    - Hvad ændringen gør
    - Hvorfor (hvilket problem løser den)
    - Hvordan I har testet den
@@ -70,7 +86,7 @@ Det er fuldt fint at bruge Claude (eller en anden AI) til at generere
 
 - **Læser ændringen igennem selv** før I sender den. AI tager fejl,
   særligt på detaljer.
-- **Tester at den virker** med 2×2-matrixen ovenfor.
+- **Tester at den virker** med trin 4 ovenfor.
 - **Beskriver i PR'en at den er AI-genereret** hvis det er hovedparten af
   ændringen — så vi ved at fagligt review behøves.
 
