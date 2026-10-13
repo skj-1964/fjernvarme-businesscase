@@ -5,24 +5,42 @@ lokalt*. Det er den arbejdsform pilotprojektet i Billund blev udviklet i —
 hele kodebasen er bygget af en domæneekspert uden programmeringsbaggrund i
 samtale med Claude.
 
-Forudsætningen er en **Claude.ai-konto** (Pro anbefales — den giver
-væsentligt højere brugsgrænser og adgang til Code Execution).
+Forudsætningen er en **Claude Pro- eller Max-konto**. Gratiskontoen rækker
+ikke til at klone repoet og køre modellen. Kodekørsel skal være slået til under
+indstillingerne, og netværksadgangen skal nå github.com. [BEKRÆFT efter K1]
 
 ## Hurtig opsætning
 
-1  Bed Claude om at hente modellen fra https://github.com/skj-1964/fjernvarme-businesscase.git
+1. **Hent modellen og kør et kort vindue.** Første prompt:
 
-2. **Stil dit første spørgsmål.** Eksempler:
-   - *"Kan du give mig et resumé af hvad denne model gør"*
-   - *"Kør baseline-scenariet for et par måneder og vis mig resultatet."*
-   - *"Hvad sker der hvis halmprisen stiger til 400 DKK/MWh?"*
+   > Klon https://github.com/skj-1964/fjernvarme-businesscase, installér
+   > requirements.txt, og kør `cases/andeby.yaml` med `--data-source github`
+   > på vintervinduet `--start 2026-01-05 --end 2026-01-17`. Vis mig
+   > dispatch-plottet og KPI-tabellen.
+
+   Første kørsel kloner også datarepoet `df-data`. Et vindue på knap to uger
+   løser på under et minut; et helt år tager fra et halvt minut til over et
+   kvarter og bør regnes på forhånd.
+
+2. **Stil dit næste spørgsmål.** Eksempler:
+   - *"Hvad gør tanken i den dyreste time i vinduet?"*
+   - *"Slå tankene fra, kør vinduet igen, og vis mig forskellen i objektivet."*
+   - *"Hvad sker der, hvis halmprisen stiger til 400 kr/MWh?"*
+
+3. **Dit eget værk.** Vedhæft dit udfyldte regneark og bed Claude lægge det i
+   `deltagere/` og konvertere det med `scripts/vaerksark_til_yaml.py`. Se
+   [`EGET_VAERK.md`](EGET_VAERK.md). Dit ark bliver i din egen session og
+   kan ikke committes til repoet.
+
+Skriv altid `--data-source github` i kommandoerne. Der er ingen
+standard-datakilde, og `api` giver nul aktiveringsindtægt i balancemarkedet.
 
 ## Hvad Claude kan gøre i denne form
 
 | Opgave | Hvordan |
 |---|---|
-| Forklare modellen, antagelser, valg | Læser kildekoden og README (`doc/rapport_billund_v3.docx` er forældet på kommandoer og tal) |
-| Køre modellen | Code Execution — installerer pakker og kører `run_case.py` |
+| Forklare modellen, antagelser, valg | Læser kildekoden, README, `doc/` og rapport v4 |
+| Køre modellen | Kodekørsel i sandkassen: kloner repoet, installerer pakker og kører `run_case.py` |
 | Modificere YAML-konfiguration | Genererer en ny `.yaml` du kan downloade |
 | Lave nye figurer | Genererer matplotlib-plots inline eller som download |
 | Tolke resultater | Læser dine output-CSV'er og forklarer |

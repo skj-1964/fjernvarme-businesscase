@@ -311,8 +311,8 @@ def main():
         "_source": note,
         "_dmi_area": args.dmi_area,
         "_calibrated": datetime.now().strftime("%Y-%m-%d"),
-        "_fit_r2": round(r2, 4),
-        "_fit_rmse": round(rmse, 3),
+        "_fit_r2": round(float(r2), 4),
+        "_fit_rmse": round(float(rmse), 3),
         "_n_observations": int(len(y)),
     }}
 

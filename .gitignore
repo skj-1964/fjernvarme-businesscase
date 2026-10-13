@@ -36,6 +36,7 @@ output/
 out/
 *.png
 !doc/figures/*.png
+!doc/arkiv/**/*.png
 
 # Cachet markedsdata — hentes automatisk fra Energinet/DMI ved første kørsel
 data/raw/

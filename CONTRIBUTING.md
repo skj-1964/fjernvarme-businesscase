@@ -52,7 +52,7 @@ Vi tager imod alt der gør modellen mere brugbar for danske fjernvarme­selskabe
 - **Sprog:** dokumentation og kommentarer på dansk, kode-identifiers på
   engelsk (det matcher resten af kodebasen).
 - **YAML:** for et nyt værk er udgangspunktet regnearket
-  `doc/vaerksdata_skabelon.xlsx` og `scripts/vaerksark_til_yaml.py` (se README).
+  `doc/vaerksdata_skabelon.xlsx` og `scripts/vaerksark_til_yaml.py` (se `doc/EGET_VAERK.md`).
   Skal du skrive en case i hånden, så følg strukturen i
   `cases/billund_sporA.yaml`. Brug `[TBC]` som markering for værdier der
   afventer bekræftelse.
