@@ -20,6 +20,9 @@ installeret (se doc/WORKFLOW_LOKAL.md):
     # 5. Kør alt (kørsler, der allerede er færdige, springes over)
     python scripts/aarsberegning.py
 
+    # 6. Byg én zip pr. værk til deltagerne (deltagere/pakker/)
+    python scripts/aarsberegning.py --pak
+
     # Kun nogle værker, eller kun enkelte måneder
     python scripts/aarsberegning.py --kun midtfyn --maaned 2026-01 --maaned 2026-02
 
@@ -50,6 +53,7 @@ import yaml
 
 ROD = Path(__file__).resolve().parent.parent
 JOBFIL = ROD / "deltagere" / "aarsberegning.yaml"
+NOTEFIL = ROD / "deltagere" / "noter.yaml"
 UD = ROD / "deltagere" / "output" / "aarsberegning"
 
 STANDARD = {
@@ -69,6 +73,8 @@ JOBFIL_HOVED = """\
 #   ekstra      ekstra argumenter til run_case.py, fx ["--set", "units.fliskedel.initial_status=1"]
 #   mip_gap     overskriver det fælles mip_gap for dette job (valgfrit)
 #   kontroltal  forventet objektiv i kr (valgfrit); scriptet melder afvigelse over 0,5 %
+#   noter       liste af linjer, der kommer med i LAESMIG-filen i værkets zip (valgfrit).
+#               Noter kan også ligge i deltagere/noter.yaml som {navn: [linjer]}.
 #
 # heat_csv: MANGLER betyder, at der ikke blev fundet en timeserie. Ret stien,
 # eller slet linjen, hvis casen skal bruge syntetisk last.
@@ -79,8 +85,10 @@ JOBFIL_HOVED = """\
 #   Aulum:     case og data fra aulum_case.zip (kopieret ind i deltagere/), kontroltal 6888659
 #   Midtfyn:   mode maaneder (helår løser ikke i ét løb)
 #   Verdo Randers (KVR): kør som helaar. Konverteringen sætter fliskedlerne slukket
-#              ved start; det løser fra 1. juli, men et månedsløb, der starter om
-#              vinteren, bliver infeasible. Konverteringen giver ingen elproduktion
+#              ved start; det løser fra 1. juli, men vintervinduet og månedsløb, der
+#              starter om vinteren, bliver infeasible. Før --pak: tilføj
+#              ekstra: ["--set", "units.k1_flis_kraftvarme.initial_status=1",
+#                       "--set", "units.k2_flis_kraftvarme.initial_status=1"] Konverteringen giver ingen elproduktion
 #              (alpha 0) og startomkostning 0. Vil du regne med kraftvarme, så tilføj
 #              fx ekstra: ["--set", "units.k1_flis_kraftvarme.alpha=0.133",
 #                          "--set", "units.k2_flis_kraftvarme.alpha=0.133"]
@@ -224,6 +232,15 @@ def laes_jobfil() -> dict:
             sys.exit(f"Job {j['navn']}: heat_csv er ikke udfyldt i jobfilen.")
         if j.get("mode", "helaar") not in ("helaar", "maaneder"):
             sys.exit(f"Job {j['navn']}: mode skal være helaar eller maaneder.")
+    # Noter kan også ligge i deltagere/noter.yaml ({navn: [linje, ...]}), så de
+    # overlever, når jobfilen laves igen med --lav-jobfil --tving.
+    if NOTEFIL.exists():
+        noter = yaml.safe_load(NOTEFIL.read_text(encoding="utf-8")) or {}
+        navne = {j["navn"] for j in cfg.get("jobs", [])}
+        for ukendt in sorted(set(noter) - navne):
+            print(f"Bemærk: {NOTEFIL.name} har noter til '{ukendt}', som ikke er et job.")
+        for j in cfg.get("jobs", []):
+            j["noter"] = list(j.get("noter") or []) + list(noter.get(j["navn"]) or [])
     return cfg
 
 
@@ -323,10 +340,17 @@ def koer_et(job: dict, cfg: dict, etiket: str, start: str | None, slut: str | No
         r["produktion_mwh"] = mf["noegletal"]["samlet_produktion_mwh"]
         r["enheder"] = {e["navn"]: round(e["produktion_mwh"], 1) for e in mf["enheder"]}
         r["model_commit"] = mf["sporbarhed"]["model_commit"]
+        r["model_type"] = mf["sporbarhed"].get("model_type", "")
         faerdig.write_text(json.dumps(r, ensure_ascii=False, indent=2), encoding="utf-8")
     else:
-        sidste = [l for l in tekst.strip().splitlines() if l.strip()][-3:]
-        r["fejl"] = " | ".join(sidste)
+        if "Termination condition: infeasible" in tekst or "Status            Infeasible" in tekst:
+            r["status"] = "infeasible"
+            r["fejl"] = ("ingen løsning (infeasible). Typisk: lasten i første time er større, "
+                         "end de enheder, der er tændt, plus tankene kan levere; prøv "
+                         "initial_status=1 på grundlastenhederne")
+        else:
+            sidste = [l for l in tekst.strip().splitlines() if l.strip()][-3:]
+            r["fejl"] = " | ".join(sidste)
     return r
 
 
@@ -339,7 +363,10 @@ def vis(r: dict) -> None:
     if r["objektiv_dkk"] is None:
         print(f"    {r['periode']:<8} FEJL efter {r['sekunder']} s: {r.get('fejl', '')}")
         return
-    gap = f"gap {r['gap_pct']:.3f} %" if r["gap_pct"] is not None else "gap ?"
+    if r["gap_pct"] is not None:
+        gap = f"gap {r['gap_pct']:.3f} %"
+    else:
+        gap = "LP, intet gap" if r.get("model_type") == "LP" else "gap ?"
     print(f"    {r['periode']:<8} {r['objektiv_dkk']:>14,.0f} kr  {r['status']:<14} {gap:<14} {r['sekunder']:>5} s")
 
 
@@ -375,8 +402,9 @@ def skriv_oversigt(alle: dict[str, list[dict]], jobs: list[dict]) -> None:
         if mangler:
             kontrol = f"{mangler} af {forventet} løb mangler; summen er ufuldstændig"
         md.append(f"| {job['navn']} | {job.get('mode', 'helaar')} | "
-                  f"{total:,.0f} | {', '.join(statusser) or 'fejl'} | "
-                  f"{(max(gaps) if gaps else float('nan')):.3f} % | "
+                  f"{total:,.0f} | {', '.join(statusser) or 'fejl'} | " +
+                  (f"{max(gaps):.3f} % | " if gaps else
+                   ("LP | " if all(r.get("model_type") == "LP" for r in ok) else "? | ")) +
                   f"{sum(r['sekunder'] for r in res if 'sekunder' in r) // 60} min | {kontrol} |"
                   if total is not None else
                   f"| {job['navn']} | {job.get('mode', 'helaar')} | – | fejl | – | – | {kontrol} |")
@@ -394,6 +422,147 @@ def skriv_oversigt(alle: dict[str, list[dict]], jobs: list[dict]) -> None:
     print(f"\nOversigt: {(UD / 'oversigt.md').relative_to(ROD)} og oversigt.csv")
 
 
+
+# ---------------------------------------------------------------------------
+# Pakker til deltagerne: én zip pr. værk
+# ---------------------------------------------------------------------------
+
+KURSUSVINDUER = [("vinter", "2026-01-05", "2026-01-16", "5.–16. januar 2026"),
+                 ("sommer", "2026-06-08", "2026-06-19", "8.–19. juni 2026")]
+PAKKER = ROD / "deltagere" / "pakker"
+CSV_RE = re.compile(r"deltagere/data/[\w.\-]+\.csv")
+
+
+def _kr(x) -> str:
+    return f"{x:,.0f}".replace(",", ".") + " kr."
+
+
+def _koersel(job: dict, start: str, slut: str) -> str:
+    dele = ["python run_case.py", job["case"], "--data-source github"]
+    if job.get("heat_csv"):
+        dele.append(f"--heat-csv {job['heat_csv']}")
+    dele.append(f"--start {start} --end {slut}")
+    dele += [str(a) for a in job.get("ekstra", [])]
+    return " ".join(dele)
+
+
+def _helaar(job: dict) -> tuple[float | None, str, list[Path]]:
+    """Forhåndsberegnet helår: (objektiv, beskrivelse, outputfiler)."""
+    mappe = UD / job["navn"]
+    if job.get("mode", "helaar") == "helaar":
+        res = [mappe / "helaar" / "resultat.json"]
+    else:
+        res = sorted(mappe.glob("20??-??/resultat.json"))
+        forventet = len(maaneder(*case_periode(ROD / job["case"])))
+        if len(res) < forventet:
+            return None, f"kun {len(res)} af {forventet} måneder er regnet", []
+    if not all(r.exists() for r in res):
+        return None, "helåret er ikke regnet endnu", []
+    rr = [json.loads(r.read_text(encoding="utf-8")) for r in res]
+    filer = []
+    for r in res:
+        filer += [f for f in r.parent.iterdir()
+                  if f.suffix in (".csv", ".json", ".png") and f.name != "resultat.json"]
+    total = sum(x["objektiv_dkk"] for x in rr)
+    tekst = ("helår i ét løb" if len(rr) == 1 else
+             f"summen af {len(rr)} månedsløb (ikke et helårsoptimum; sammenlign kun "
+             "med tal, der også er regnet måned for måned)")
+    return total, tekst, filer
+
+
+def laesmig(job: dict, kontrol: dict, helaar: tuple, case_navn: str) -> str:
+    vin = KURSUSVINDUER[0]
+    l = [f"# {case_navn}: casefil til kurset 22. oktober 2026", "",
+         "Zip-filen indeholder jeres færdige case. Den er konverteret fra jeres regneark "
+         "og kørt igennem på forhånd. I skal ikke konvertere arket selv.", "",
+         "## Prompt til Claude", "",
+         f"> Jeg har vedhæftet {job['navn']}_case.zip. Pak den ud i roden af repoet "
+         f"fjernvarme-businesscase, så mappen deltagere/ kommer til at ligge der. Kør så "
+         f"denne kommando på vintervinduet {vin[3]}, og vis mig dispatch-plottet og "
+         f"KPI-tabellen. Kør ikke scripts/vaerksark_til_yaml.py.", ">",
+         f"> `{_koersel(job, vin[1], vin[2])}`", "",
+         "## Kontroltal", "",
+         "Får I det samme objektiv, kører I den samme model på de samme data som os.", "",
+         "| Kørsel | Objektiv |", "|---|---:|"]
+    for lab, s, e, txt in KURSUSVINDUER:
+        l.append(f"| {lab.capitalize()}, {txt} (`--start {s} --end {e}`) | {_kr(kontrol[lab])} |")
+    tot, beskr, _ = helaar
+    l.append(f"| Helår, forhåndsberegnet ({beskr}) | {_kr(tot)} |")
+    l += ["", "Helåret kan ikke køres live på kursusdagen; det tager fra sekunder til en "
+          "halv time. Resultatet ligger i `deltagere/forhaandsberegnet/`: timedata, "
+          "månedstal, KPI-tabel og dispatch-plot.", "",
+          "Objektivet er den samlede driftsomkostning i perioden. Brug forskellen "
+          "mellem to kørsler som grundlag for beslutninger, ikke det absolutte tal.", ""]
+    if job.get("noter"):
+        l += ["## Det skal I vide om jeres case", ""] + [f"- {n}" for n in job["noter"]] + [""]
+    l += ["Jeres data ligger i mappen deltagere/, som git ignorerer. De kommer derfor "
+          "aldrig med i det offentlige repo.", ""]
+    return "\n".join(l)
+
+
+def pak(jobs: list[dict], cfg: dict, forfra: bool) -> None:
+    import zipfile
+    PAKKER.mkdir(parents=True, exist_ok=True)
+    oversigt = []
+    for job in jobs:
+        print(f"{job['navn']}")
+        case = ROD / job["case"]
+        raw = yaml.safe_load(case.read_text(encoding="utf-8"))
+        case_navn = (raw.get("meta") or {}).get("titel") or (raw.get("meta") or {}).get("case_name") or job["navn"]
+
+        kontrol, fejl = {}, []
+        for lab, s, e, _ in KURSUSVINDUER:
+            r = koer_et(job, cfg, lab, s, e, False, forfra)
+            vis(r)
+            if r.get("objektiv_dkk") is None:
+                fejl.append(f"{lab}vinduet fejler" +
+                            (" (infeasible)" if r.get("status") == "infeasible" else ""))
+            elif r.get("status") != "optimal":
+                fejl.append(f"{lab}vinduet er ikke optimalt ({r.get('status')})")
+            else:
+                kontrol[lab] = r["objektiv_dkk"]
+        helaar = _helaar(job)
+        if helaar[0] is None:
+            fejl.append(helaar[1])
+        uafklaret = [n for n in job.get("noter", []) if "[RET" in n or "[BEKRÆFT" in n]
+        if uafklaret:
+            fejl.append(f"{len(uafklaret)} note(r) har en [RET]- eller [BEKRÆFT]-markør")
+        if fejl:
+            print(f"    PAKKES IKKE: {'; '.join(fejl)}\n")
+            oversigt.append((job["navn"], "pakkes ikke", "; ".join(fejl)))
+            continue
+
+        data = set(CSV_RE.findall(case.read_text(encoding="utf-8")))
+        if job.get("heat_csv"):
+            data.add(job["heat_csv"])
+        mangler = [d for d in sorted(data) if not (ROD / d).exists()]
+        if mangler:
+            print(f"    PAKKES IKKE: mangler {', '.join(mangler)}\n")
+            oversigt.append((job["navn"], "pakkes ikke", "mangler " + ", ".join(mangler)))
+            continue
+
+        zip_sti = PAKKER / f"{job['navn']}_case.zip"
+        with zipfile.ZipFile(zip_sti, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.write(case, job["case"])
+            for d in sorted(data):
+                zf.write(ROD / d, d)
+            for f in helaar[2]:
+                rel = f.relative_to(UD / job["navn"])
+                pænt = re.sub(r"__set-solver_time_limit-\d+", "", rel.as_posix())
+                zf.write(f, f"deltagere/forhaandsberegnet/{job['navn']}/{pænt}")
+            zf.writestr(f"deltagere/LAESMIG_{job['navn']}.md",
+                        laesmig(job, kontrol, helaar, case_navn))
+        mb = zip_sti.stat().st_size / 1e6
+        print(f"    pakket: {zip_sti.relative_to(ROD)} ({mb:.1f} MB)\n")
+        oversigt.append((job["navn"], f"{mb:.1f} MB",
+                         f"vinter {_kr(kontrol['vinter'])}, sommer {_kr(kontrol['sommer'])}, "
+                         f"helår {_kr(helaar[0])}"))
+    print("Pakker:")
+    for n, s, t in oversigt:
+        print(f"  {n:<26} {s:<12} {t}")
+    print(f"\nZip-filerne ligger i {PAKKER.relative_to(ROD)}/. Læs LAESMIG-filen i hver, "
+          "før den sendes.")
+
 # ---------------------------------------------------------------------------
 
 def main() -> None:
@@ -407,6 +576,8 @@ def main() -> None:
     ap.add_argument("--maaned", action="append", default=[],
                     help="Kun denne måned i månedsløb, fx 2026-01 (kan gentages)")
     ap.add_argument("--forfra", action="store_true", help="Regn også færdige løb igen")
+    ap.add_argument("--pak", action="store_true",
+                    help="Byg én zip pr. værk til deltagerne (kører kursusvinduerne som kontroltal)")
     a = ap.parse_args()
 
     if not (ROD / "run_case.py").exists():
@@ -422,6 +593,9 @@ def main() -> None:
     jobs = [j for j in cfg["jobs"] if not a.kun or j["navn"] in a.kun]
     if not jobs:
         sys.exit("Ingen job matcher --kun.")
+    if a.pak:
+        pak(jobs, cfg, a.forfra)
+        return
     print(f"mip_gap {cfg['mip_gap'] if cfg['mip_gap'] is not None else 'fra casen'}, tidsgrænse {cfg['time_limit']} s pr. løb\n")
 
     alle: dict[str, list[dict]] = {}
