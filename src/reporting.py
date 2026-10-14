@@ -434,13 +434,31 @@ def write_hourly_csv(result: xr.Dataset, data: xr.Dataset, cfg,
             else:
                 cop_values = 1.0
 
-            if alpha is not None:
+            # activation_value-metoden: brug de SAMME kvartersberegnede serier
+            # som objektivet (av, av_payment, clear_fraction). Før blev
+            # kolonnerne regnet med legacy α·timepris og matchede ikke objektivet.
+            mk = "mfrr" if prefix == "r_mfrr_" else "afrr"
+            av = data.get(f"{mk}_activation_value_up")
+            av_pay = data.get(f"{mk}_activation_payment_up")
+            clear = data.get(f"{mk}_clear_fraction_up")
+            use_av = (getattr(cfg, "balancing_method", None) == "activation_value"
+                      and av is not None and av_pay is not None and clear is not None)
+
+            if use_av:
+                df[f"{var_name}_activated_mwh"] = clear.values * r_values * dt
+                df[f"{var_name}_heat_reduction_mw"] = clear.values * cop_values * r_values
+            elif alpha is not None:
                 alpha_values = alpha.values
                 df[f"{var_name}_activated_mwh"] = alpha_values * r_values * dt
                 df[f"{var_name}_heat_reduction_mw"] = alpha_values * cop_values * r_values
             if price_cap is not None:
                 df[f"{var_name}_cap_revenue_dkk"] = price_cap.values * r_values * dt
-            if alpha is not None and price_act is not None:
+            if use_av:
+                # Netto aktiveringsbetaling (kun p_act) og brutto inkl.
+                # forbrugsmodregning — summerer til skærmudskriftens tal.
+                df[f"{var_name}_act_revenue_dkk"] = av_pay.values * r_values
+                df[f"{var_name}_act_gross_dkk"] = av.values * r_values
+            elif alpha is not None and price_act is not None:
                 df[f"{var_name}_act_revenue_dkk"] = (
                     alpha.values * price_act.values * r_values * dt
                 )

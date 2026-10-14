@@ -230,12 +230,22 @@ class Activation:
     afrr: ActivationMarket = field(default_factory=ActivationMarket)
     mfrr: ActivationMarket = field(default_factory=ActivationMarket)
     foresight: str = "realized"
+    # settle: 'forecast' — objektiv og rapport bruger prognosen (gammel adfærd).
+    #         'realized' — totrin: løs på prognosen, lås reservationerne,
+    #                      løs igen på de realiserede værdier (ex post-afregning).
+    settle: str = "forecast"
+
+    _FORESIGHT = ("realized", "profile", "lag24", "lag168")
 
     def __post_init__(self):
-        if self.foresight not in ("realized", "profile"):
+        if self.foresight not in self._FORESIGHT:
             raise ValueError(
-                "balancing.activation.foresight skal være 'realized' eller "
-                f"'profile', fik {self.foresight!r}")
+                f"balancing.activation.foresight skal være en af {self._FORESIGHT}, "
+                f"fik {self.foresight!r}")
+        if self.settle not in ("forecast", "realized"):
+            raise ValueError(
+                "balancing.activation.settle skal være 'forecast' eller "
+                f"'realized', fik {self.settle!r}")
 
 
 @dataclass
@@ -1000,7 +1010,7 @@ def load_case(
 
     # Aktiveringsmodel (valgfri blok; default clear = uændret anker)
     act_raw = bal_raw.get("activation") or {}
-    ukendte_act = set(act_raw) - {"afrr", "mfrr", "foresight"}
+    ukendte_act = set(act_raw) - {"afrr", "mfrr", "foresight", "settle"}
     if ukendte_act:
         raise ValueError(
             f"ukendte noegler i balancing.activation: {sorted(ukendte_act)}")
@@ -1013,7 +1023,8 @@ def load_case(
                 f"ukendte noegler i balancing.activation.{mk}: {sorted(ukendte_mk)}")
         act_kw[mk] = ActivationMarket(**mk_raw)
     activation = Activation(**act_kw,
-                            foresight=act_raw.get("foresight", "realized"))
+                            foresight=act_raw.get("foresight", "realized"),
+                            settle=act_raw.get("settle", "forecast"))
     if (balancing_method != "activation_value"
             and (any(a.model != "clear" for a in act_kw.values())
                  or activation.foresight != "realized")):

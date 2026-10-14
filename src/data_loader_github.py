@@ -505,15 +505,27 @@ def fetch_balance_prices_github(
                 else f"ramp({mcfg.ramp_dkk_mwh:g})")
             print(f"  {mk}: aktiveringsmodel = {beskr}")
         av_ds = xr.Dataset(av_vars)
-        if act_cfg is not None and act_cfg.foresight == "profile":
-            # Ingen foresight på aktiveringen: hver time får gennemsnittet for
-            # samme måned og time på døgnet (kapacitetsprisen er urørt).
+        if act_cfg is not None and act_cfg.foresight != "realized":
+            # Optimeringen ser en PROGNOSE af aktiveringsværdien, ikke den
+            # realiserede (kapacitetsbuddet afgives dagen før). Kapacitets-
+            # prisen er urørt. De realiserede serier gemmes som <navn>__realized,
+            # så run_case kan afregne ex post (balancing.activation.settle).
             tider = pd.DatetimeIndex(av_ds.time.values)
             noegle = tider.strftime("%Y-%m") + "_" + tider.strftime("%H")
             for v in list(av_ds.data_vars):
                 ser = pd.Series(av_ds[v].values, index=tider)
-                av_ds[v] = ("time", ser.groupby(noegle).transform("mean").values)
-            print("  aktivering: foresight = profile (måned × time på døgnet)")
+                av_ds[f"{v}__realized"] = ("time", ser.values)
+                profil = ser.groupby(noegle).transform("mean")
+                if act_cfg.foresight == "profile":
+                    prog = profil
+                else:
+                    lag = {"lag24": "24h", "lag168": "168h"}[act_cfg.foresight]
+                    prog = ser.shift(freq=lag).reindex(tider)
+                    # Første døgn/uge har ingen historik: brug profilen der.
+                    prog = prog.fillna(profil)
+                av_ds[v] = ("time", prog.values)
+            print(f"  aktivering: foresight = {act_cfg.foresight}"
+                  f" (settle = {act_cfg.settle})")
         print(
             f"  av(t) beregnet (markup={markup_up:.0f}, el_flat={el_flat:.0f}): "
             f"aFRR av-gns={float(av_ds['afrr_activation_value_up'].mean()):.1f}, "

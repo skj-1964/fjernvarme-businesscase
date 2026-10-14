@@ -674,6 +674,32 @@ def main():
     print(f"\nLøser med {args.solver}...")
     result = solve_and_extract(m, cfg, solver=args.solver)
 
+    # Ex post-afregning: reservationen er besluttet på prognosen (trin 1);
+    # nu låses den, og driften løses igen på de realiserede aktiverings-
+    # værdier (trin 2). Trin 2's objektiv er det, Billund faktisk ville få.
+    act_cfg = getattr(cfg, "activation", None)
+    realized_vars = [v for v in data.data_vars if str(v).endswith("__realized")]
+    if (args.with_balancing and act_cfg is not None
+            and act_cfg.foresight != "realized" and act_cfg.settle == "realized"
+            and realized_vars):
+        fixed = {}
+        for name in m.variables:
+            if name.startswith(("r_afrr_", "r_mfrr_")):
+                fixed[name] = m.variables[name].solution
+        tot1 = sum(float(v.sum()) for v in fixed.values())
+        print(f"\n=== Trin 2: ex post-afregning ({act_cfg.foresight}) ===")
+        print(f"  Trin 1-objektiv (på prognose): {float(m.objective.value):,.0f} DKK")
+        print(f"  Låser {len(fixed)} reservationsvariable "
+              f"({tot1:,.0f} MW-timer i alt)")
+        data = data.copy()
+        for v in realized_vars:
+            data[str(v)[:-len("__realized")]] = data[v]
+        m = build_model(cfg, data)
+        for name, val in fixed.items():
+            m.add_constraints(m.variables[name] == val, name=f"fix_{name}")
+        print(f"Løser trin 2 med {args.solver}...")
+        result = solve_and_extract(m, cfg, solver=args.solver)
+
     print("\n=== KPI'er ===")
     kpi = kpi_summary(result, data, cfg)
     print(kpi.to_string(index=False))
