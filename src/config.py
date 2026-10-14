@@ -235,7 +235,7 @@ class Activation:
     #                      løs igen på de realiserede værdier (ex post-afregning).
     settle: str = "forecast"
 
-    _FORESIGHT = ("realized", "profile", "lag24", "lag168")
+    _FORESIGHT = ("realized", "profile", "trailing30", "lag24", "lag168")
 
     def __post_init__(self):
         if self.foresight not in self._FORESIGHT:

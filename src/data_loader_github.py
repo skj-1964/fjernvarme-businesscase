@@ -518,6 +518,14 @@ def fetch_balance_prices_github(
                 profil = ser.groupby(noegle).transform("mean")
                 if act_cfg.foresight == "profile":
                     prog = profil
+                elif act_cfg.foresight == "trailing30":
+                    # Gennemsnit af samme time på døgnet de seneste 30 døgn,
+                    # FØR i dag (shift(1)) — ingen kig ind i fremtiden.
+                    time_paa_doegn = tider.hour
+                    prog = (ser.groupby(time_paa_doegn)
+                               .transform(lambda x: x.rolling(30, min_periods=1)
+                                                     .mean().shift(1)))
+                    prog = prog.fillna(profil)
                 else:
                     lag = {"lag24": "24h", "lag168": "168h"}[act_cfg.foresight]
                     prog = ser.shift(freq=lag).reindex(tider)
