@@ -97,7 +97,9 @@ aktivering er ikke kendt:
 `activation.settle` afgør, hvad tallet afregnes på. `forecast` (standard)
 rapporterer prognosens værdi. `realized` løser først på prognosen, låser
 reservationerne og løser driften igen på de realiserede aktiveringer; begge
-objektiver skrives ud. Valget af budstrategi og profiler til eget værk:
+objektiver skrives ud. `balancing.robust_reservation: true` kræver desuden, at
+driften holder, hvis buddet ikke aktiveres (anbefalet; standard er `false`).
+Valget af budstrategi og profiler til eget værk:
 [`BUDSTRATEGI.md`](BUDSTRATEGI.md).
 
 ---

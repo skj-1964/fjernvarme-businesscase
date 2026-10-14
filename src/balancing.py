@@ -387,6 +387,7 @@ def _add_footroom_constraints(
     heat_prod,
     afrr_vars: dict,
     mfrr_vars: dict,
+    name_suffix: str = "",
 ) -> None:
     """Footroom: produktion skal dække fuldaktivering af ALLE markedsdeles bud.
 
@@ -417,7 +418,7 @@ def _add_footroom_constraints(
 
         m.add_constraints(
             p_heat_u - cop * reserve_sum >= 0,
-            name=f"r_up_footroom_{unit_name}",
+            name=f"r_up_footroom_{unit_name}{name_suffix}",
         )
 
 

@@ -360,6 +360,8 @@ balancing:
   # Aktivering som Andeby (session 28-kalibrering). foresight vælger
   # beslutningsgrundlaget: realized | profile | lag24 | lag168.
   # settle: realized = reservationen låses og afregnes på de realiserede værdier.
+  # Driften skal også holde, hvis buddet ikke aktiveres (doc/BUDSTRATEGI.md).
+  robust_reservation: true
   activation:
     foresight: profile
     settle: realized

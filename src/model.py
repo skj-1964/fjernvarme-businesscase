@@ -325,6 +325,74 @@ def build_model(cfg: CaseConfig, data: xr.Dataset) -> lp.Model:
         )
 
     # --------------------------------------------------------------------------
+    # [6] Robust reservation — planen uden aktivering
+    #
+    # Varmebalancen ovenfor regner med den FORVENTEDE aktivering: en reserveret
+    # elkedel må gerne producere mere end lasten, hvis aktiveringen forventes at
+    # fjerne forskellen. Udebliver aktiveringen, står varmen uden afsætning, og
+    # uden tank kan reservationen ikke holdes (fundet 14/10-2026).
+    #
+    # Værkerne planlægger, så driften holder, også hvis buddet ikke aktiveres.
+    # Derfor en ekstra drift "uden aktivering" med egen produktion og egne
+    # lagre, men DELT unit commitment og DELTE reservationer:
+    #   Σ heat_prod_0 + afladning_0 − ladning_0 = efterspørgsel   (ingen reduktion)
+    #   heat_prod_0[i] ≥ COP·(r_afrr[i] + r_mfrr[i])               (footroom)
+    #   P_min·u ≤ heat_prod_0 ≤ P_max·u                             (UC-enheder)
+    #   lagerdynamik, start og cyklusbinding som for hovedplanen
+    # Planen er en betingelse, ikke en omkostning: objektivet regnes stadig på
+    # den forventede aktivering.
+    # --------------------------------------------------------------------------
+    if bal is not None and getattr(cfg, "robust_reservation", False):
+        from .balancing import _add_footroom_constraints
+
+        heat_prod_0 = m.add_variables(
+            lower=0.0, upper=p_max,
+            coords=[("unit", unit_names), ("time", time_coord)],
+            name="heat_prod_noact",
+        )
+        if uc is not None:
+            for name, unit in uc["uc_entries"]:
+                u_i = uc["u"].sel(unit_uc=name)
+                p0 = heat_prod_0.sel(unit=name)
+                m.add_constraints(p0 - unit.p_min_heat * u_i >= 0,
+                                  name=f"uc_minload_{name}_noact")
+                m.add_constraints(p0 - unit.p_max_heat * u_i <= 0,
+                                  name=f"uc_maxload_{name}_noact")
+        _add_footroom_constraints(m, cfg, data, heat_prod_0,
+                                  bal["r_afrr_vars"], bal["r_mfrr_vars"],
+                                  name_suffix="_noact")
+        if has_storage:
+            e0 = m.add_variables(lower=0.0, upper=e_max,
+                                 coords=[("storage", storage_names), ("time", time_coord)],
+                                 name="storage_energy_noact")
+            ch0 = m.add_variables(lower=0.0, upper=p_ch_max,
+                                  coords=[("storage", storage_names), ("time", time_coord)],
+                                  name="charge_noact")
+            dis0 = m.add_variables(lower=0.0, upper=p_dis_max,
+                                   coords=[("storage", storage_names), ("time", time_coord)],
+                                   name="discharge_noact")
+            dyn0 = e0 - (1 - delta) * e0.shift(time=1) - ch0 + dis0
+            m.add_constraints(dyn0.sel(time=time_coord[1:]) == 0,
+                              name="storage_dynamics_noact")
+            m.add_constraints(e0.sel(time=time_coord[0]) == e_init,
+                              name="storage_initial_noact")
+            for s_name in storage_names:
+                s = cfg.storage[s_name]
+                if s.cycle_binding:
+                    m.add_constraints(
+                        e0.sel(storage=s_name, time=time_coord[-1]) == s.e_initial_mwh,
+                        name=f"storage_cycle_{s_name}_noact")
+            m.add_constraints(
+                heat_prod_0.sum("unit") + dis0.sum("storage") - ch0.sum("storage")
+                == data["heat_demand"],
+                name="heat_balance_noact")
+        else:
+            m.add_constraints(heat_prod_0.sum("unit") == data["heat_demand"],
+                              name="heat_balance_noact")
+        print("  Robust reservation: driften skal også holde uden aktivering "
+              "(egen produktion og tank, delt unit commitment og reservation)")
+
+    # --------------------------------------------------------------------------
     # Målfunktion: total driftsomkostning (+ UC-omkostninger, − balancing-indtægt)
     # --------------------------------------------------------------------------
     mc_per_unit = xr.concat(

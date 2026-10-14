@@ -776,6 +776,9 @@ class CaseConfig:
     activation: "Activation" = field(default_factory=Activation)
     # Månedligt tilgængelighedsloft på reservationen (session 28). None = intet.
     availability: Optional["Availability"] = None
+    # Robust reservation: driften skal også holde, hvis buddet IKKE aktiveres
+    # (planen uden aktivering). Se model.py og doc/BUDSTRATEGI.md.
+    robust_reservation: bool = False
     # Solvertolerance. Se Solver-docstring: standarden er til ABSOLUTTE
     # koersler, ikke til scenariedifferenser.
     solver: "Solver" = field(default_factory=Solver)
@@ -961,6 +964,15 @@ def load_case(
 
     # Balancering (session 22): method-toggle, budstrategi, generiske lofter
     bal_raw = raw.get("balancing", {})
+    _KENDTE_BAL = {"method", "bid_strategy", "ancillary_caps", "reservation_gate",
+                   "activation", "availability", "shared_reserve_cap_mw",
+                   "robust_reservation"}
+    ukendte_bal = set(bal_raw or {}) - _KENDTE_BAL
+    if ukendte_bal:
+        raise ValueError(
+            f"ukendte noegler i balancing: {sorted(ukendte_bal)}. "
+            f"Gyldige: {sorted(_KENDTE_BAL)}")
+    robust_reservation = bool((bal_raw or {}).get("robust_reservation", False))
     balancing_method = bal_raw.get("method", "legacy")
     if balancing_method not in ("legacy", "activation_value"):
         raise ValueError(
@@ -1116,6 +1128,7 @@ def load_case(
         reservation_gate=reservation_gate,
         activation=activation,
         availability=availability,
+        robust_reservation=robust_reservation,
         solver=solver_cfg,
         data=data_cfg,
     )

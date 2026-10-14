@@ -85,7 +85,18 @@ Med `settle: realized` afregnes buddet bagefter på det, der faktisk skete: Mode
 
 De to løsninger skrives begge ud: `Trin 1-objektiv (på prognose)` og `Objektiv` (afregnet på det realiserede).
 
-### 3.4 Aktiveringen
+### 3.4 Skal driften holde, hvis buddet ikke aktiveres?
+
+En reserveret elkedel skal køre for at kunne stoppe. Modellen regner med den *forventede* aktivering, og uden en ekstra betingelse kan den lægge en plan, hvor elkedlen producerer mere varme, end nettet kan aftage, fordi aktiveringen forventes at fjerne forskellen. Udebliver aktiveringen, er der ingen steder at gøre af varmen.
+
+Med `robust_reservation: true` skal driften også holde, hvis buddet *ikke* aktiveres: varmen fra de reserverede enheder skal kunne afsættes i nettet eller i tanken. Det er sådan, værkerne planlægger i dag. Uden tank begrænser det, hvor meget værket kan byde om sommeren, og det er en væsentlig del af tankens værdi i balancemarkedet.
+
+| Valg | Betydning |
+|---|---|
+| `robust_reservation: true` | Driften holder med og uden aktivering. Anbefalet |
+| `robust_reservation: false` (standard) | Driften holder kun med den forventede aktivering. Kan give "Modellen kan ikke løses" med `settle: realized` uden tank om sommeren |
+
+### 3.5 Aktiveringen
 
 To yderligere valg bestemmer aktiveringsindtægten:
 
@@ -136,6 +147,7 @@ balancing:
     per_unit_mw:
       vp_luft_vand: 6.0             # prækvalificeret eloptag pr. enhed
     total_mw: 14.0                  # samlet prækvalificeret kapacitet
+  robust_reservation: true          # driften skal holde, også uden aktivering
   activation:
     foresight: trailing30
     settle: realized
@@ -222,10 +234,12 @@ python run_case.py $W --with-balancing \
     --set balancing.activation.foresight=realized        # (2) byd frit, kender aktiveringerne
 python run_case.py $W --with-balancing \
     --set balancing.activation.foresight=trailing30 \
-    --set balancing.activation.settle=realized           # (3) byd frit, prognose
+    --set balancing.activation.settle=realized \
+    --set balancing.robust_reservation=true              # (3) byd frit, prognose
 python run_case.py $W --with-balancing \
     --set balancing.activation.foresight=trailing30 \
     --set balancing.activation.settle=realized \
+    --set balancing.robust_reservation=true \
     --set balancing.reservation_gate.enabled=true         # (4) beregnet budpris, prognose
 ```
 
@@ -236,7 +250,7 @@ Kontroltal (14. oktober 2026):
 | (1) Uden balance | – | 3.424.408 kr. | – |
 | (2) Byd frit, kender aktiveringerne | – | 2.869.989 kr. | 554.000 kr. |
 | (3) Byd frit, prognose | 2.720.352 kr. | 3.163.413 kr. | 261.000 kr. |
-| (4) Beregnet budpris, prognose | 3.247.444 kr. | 3.269.898 kr. | 155.000 kr. |
+| (4) Beregnet budpris, prognose | 3.247.444 kr. | 3.268.332 kr. | 156.000 kr. |
 
 (2) er et loft, ingen kan nå. (3) lover mest, men skuffer mest: modellen kører elkedlen for at fange aktiveringer, der ikke kommer. (4) lover mindre, men holder.
 
@@ -245,7 +259,7 @@ Kontroltal (14. oktober 2026):
 Bed Claude om at læse denne fil, sætte den fælles blok og en profil ind i din case med dine egne enhedsnavne og din prækvalificerede effekt, og køre et kort vindue med og uden `--with-balancing`. Typiske beskeder:
 
 - **"findes ikke i casen"**: et enhedsnavn i blokken passer ikke. Beskeden viser de gyldige navne.
-- **"Modellen kan ikke løses"**: typisk profil 1, hvor aFRR- og mFRR-blokken tilsammen er større end enhedernes eleffekt. Gør blokkene mindre, eller brug profil 2.
+- **"Modellen kan ikke løses"**: typisk profil 1, hvor aFRR- og mFRR-blokken tilsammen er større end enhedernes eleffekt. Gør blokkene mindre, eller brug profil 2. Står `robust_reservation` til `false`, kan det også ske i sommervinduer uden tank.
 - **Profil 4 giver 0 kr.**: værkets alternativomkostning ligger over kapacitetsprisen i vinduet. Det er ikke en fejl.
 - **Et kort vindue kan ikke ganges op til et år.** Brug det til at sammenligne profiler.
 

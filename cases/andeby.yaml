@@ -475,6 +475,8 @@ balancing:
 
   # Aktiveret andel pr. marked. model: clear | system_share | ramp.
   # foresight: realized | profile. Se noten ovenfor.
+  # Driften skal også holde, hvis buddet ikke aktiveres (doc/BUDSTRATEGI.md).
+  robust_reservation: false
   activation:
     foresight: profile        # realized | profile | trailing30 | lag24 | lag168
     settle: forecast          # realized = afregn buddet på det, der faktisk skete
