@@ -100,3 +100,24 @@ def test_config_afviser_ukendt_foresight_og_settle():
 def test_settle_default_er_forecast():
     # Default må ikke ændre eksisterende cases.
     assert Activation().settle == "forecast"
+
+
+def test_loft_paa_ukendt_enhed_afvises(tmp_path):
+    # Før blev et loft på en enhed, der ikke findes, ignoreret tavst.
+    import yaml
+    from src.config import load_case
+    d = yaml.safe_load(open("cases/andeby.yaml", encoding="utf-8"))
+    d["balancing"]["ancillary_caps"]["per_unit_mw"] = {"varmepumpe_findes_ikke": 6.0}
+    sti = tmp_path / "forkert_navn.yaml"
+    sti.write_text(yaml.safe_dump(d, allow_unicode=True), encoding="utf-8")
+    with pytest.raises(ValueError, match="findes ikke i casen"):
+        load_case(str(sti))
+
+
+def test_alle_cases_kan_indlaeses():
+    import glob
+    from src.config import load_case
+    for sti in glob.glob("cases/*.yaml"):
+        if "heat_load_params" in sti:
+            continue
+        load_case(sti)

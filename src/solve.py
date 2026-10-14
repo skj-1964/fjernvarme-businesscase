@@ -112,6 +112,23 @@ def solve_and_extract(m: lp.Model, cfg: CaseConfig, solver: str = "highs") -> xr
         print(f"  MILP-mode: solver={solver}, options: {opts_str}")
 
     status = m.solve(solver_name=solver, **solver_options)
+    termination = str(m.termination_condition).lower()
+    if "infeasible" in termination:
+        # Før gav en uløselig model et traceback ("Variables has no attribute
+        # solution"), som ikke siger, hvad der er galt.
+        raise SystemExit(
+            "\nModellen kan ikke løses (infeasible): der findes ingen drift, der "
+            "overholder alle krav i casen.\nTypiske årsager:\n"
+            "  - balancing.reservation_gate med mode: driven og blokke, der "
+            "tilsammen (aFRR + mFRR)\n    er større end det, enhederne kan bruge af "
+            "el på samme tid. Gør blokkene mindre,\n    eller brug mode: bound.\n"
+            "  - kedler med initial_status: 1 og minimumslast, der giver mere varme "
+            "end nettet kan\n    aftage i starten af vinduet, typisk om sommeren "
+            "eller uden tank.\n"
+            "  - for lidt kapacitet til at dække varmelasten i en time (enheder slået "
+            "fra, eller\n    en tank er slået fra).\n"
+            "Kør igen uden --with-balancing for at se, om problemet ligger i "
+            "balanceblokken.")
     sol = m.solution
 
     extracted: list[str] = []

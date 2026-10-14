@@ -983,6 +983,16 @@ def load_case(
         if caps_raw
         else None
     )
+    # Et loft på en enhed, der ikke findes, blev før ignoreret tavst — så
+    # kørte modellen uden loftet. Typisk når en balanceblok kopieres fra en
+    # anden case, hvor enhederne hedder noget andet.
+    if ancillary_caps is not None:
+        for felt in ("per_unit_mw", "per_unit_market_mw"):
+            ukendte = sorted(set(getattr(ancillary_caps, felt) or {}) - set(units))
+            if ukendte:
+                raise ValueError(
+                    f"balancing.ancillary_caps.{felt}: enhed(er) {ukendte} findes "
+                    f"ikke i casen. Gyldige enheder: {sorted(units)}")
 
     # CM-pris-gate på reservationen (Spor B/A). Ren config-blok under balancing.
     gate_raw = bal_raw.get("reservation_gate")
