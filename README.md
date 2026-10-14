@@ -162,6 +162,7 @@ et værk vil tjene.
 | [`doc/KOERSEL.md`](doc/KOERSEL.md) | alle flag til `run_case.py`, output-filer, scenarier som differens, solvergab |
 | [`doc/EGET_VAERK.md`](doc/EGET_VAERK.md) | regnearket, konverteringen, vinduer og helår, case i hånden |
 | [`doc/BALANCEMARKED.md`](doc/BALANCEMARKED.md) | aFRR/mFRR: bud, lofter, aktiveringsværdi, Spor A og Spor B |
+| [`doc/BUDSTRATEGI.md`](doc/BUDSTRATEGI.md) | budstrategi: budpris, budstørrelse, prognose og afregning; seks budprofiler med færdige YAML-blokke |
 | [`doc/VARMELAST_OG_NETTAB.md`](doc/VARMELAST_OG_NETTAB.md) | varmepumpens ydelsestabel, rekalibrering af varmelasten, nettabsmodellen |
 | [`doc/WORKFLOW_CLAUDE.md`](doc/WORKFLOW_CLAUDE.md) | Vej B i praksis |
 | [`doc/WORKFLOW_LOKAL.md`](doc/WORKFLOW_LOKAL.md) | Vej A i praksis |

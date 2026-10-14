@@ -121,3 +121,26 @@ def test_alle_cases_kan_indlaeses():
         if "heat_load_params" in sti:
             continue
         load_case(sti)
+
+
+def test_budprofilerne_i_dokumentationen_kan_indlaeses(tmp_path):
+    # doc/BUDSTRATEGI.md er det, deltagerne kopierer fra. Hver profil skal
+    # kunne indlæses sammen med den fælles blok, ellers er dokumentet forkert.
+    import copy
+    import re
+    import yaml
+    from src.config import load_case
+    tekst = open("doc/BUDSTRATEGI.md", encoding="utf-8").read()
+    blokke = re.findall(r"```yaml\n(.*?)```", tekst, re.S)
+    faelles = yaml.safe_load(blokke[0])["balancing"]
+    profiler = [b for b in blokke[1:] if b.lstrip().startswith("reservation_gate")]
+    assert len(profiler) == 5
+    base = yaml.safe_load(open("cases/andeby.yaml", encoding="utf-8"))
+    for i, blok in enumerate(profiler, 1):
+        d = copy.deepcopy(base)
+        bal = copy.deepcopy(faelles)
+        bal.update(yaml.safe_load(blok))
+        d["balancing"] = bal
+        sti = tmp_path / f"profil{i}.yaml"
+        sti.write_text(yaml.safe_dump(d, allow_unicode=True), encoding="utf-8")
+        load_case(str(sti))

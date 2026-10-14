@@ -83,10 +83,22 @@ et kvarter:
 | `system_share` | `1[p ≥ bud] · min(1, k·α(τ))`, α = systemets aktiverede volumen / indkøbt kapacitet |
 | `ramp` | `min(1, max(0, (p − bud) / ramp_dkk_mwh))` |
 
-`activation.foresight: profile` lader optimeringen se aktiveringsværdiens
-gennemsnit pr. måned og time på døgnet i stedet for den realiserede, fordi
-kapacitetsbuddet afgives dagen før. Manifestets aktiveringstal er da
-forventede.
+`activation.foresight` vælger, hvad optimeringen ved om aktiveringen, når
+den reserverer. Kapacitetsbuddet afgives dagen før, så den realiserede
+aktivering er ikke kendt:
+
+| foresight | optimeringen ser | kigger frem |
+|---|---|---|
+| `realized` (standard) | den realiserede aktiveringsværdi | ja, fuldt |
+| `profile` | gennemsnit pr. kalendermåned og time på døgnet | delvist (resten af måneden) |
+| `trailing30` | gennemsnit af samme time de seneste 30 døgn før i dag | nej |
+| `lag24` / `lag168` | samme time i går / sidste uge | nej |
+
+`activation.settle` afgør, hvad tallet afregnes på. `forecast` (standard)
+rapporterer prognosens værdi. `realized` løser først på prognosen, låser
+reservationerne og løser driften igen på de realiserede aktiveringer; begge
+objektiver skrives ud. Valget af budstrategi og profiler til eget værk:
+[`BUDSTRATEGI.md`](BUDSTRATEGI.md).
 
 ---
 
