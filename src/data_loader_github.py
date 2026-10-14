@@ -370,6 +370,45 @@ def fetch_dmi_weather_github(
     return out.loc[~out.index.duplicated(keep="first")].sort_index()
 
 
+def aktiverings_prognose(ser: pd.Series, foresight: str) -> pd.Series:
+    """Prognose af en timeserie for aktiveringsværdi, set fra budtidspunktet.
+
+    Kapacitetsbuddet afgives dagen før, så optimeringen må ikke kende den
+    realiserede aktivering. foresight vælger, hvad værket ved, når det byder:
+
+      'realized'    den realiserede serie (perfekt foresight, øvre grænse)
+      'profile'     gennemsnit for kalendermåneden pr. time på døgnet.
+                    Kigger delvist frem (resten af måneden).
+      'trailing30'  gennemsnit af samme time på døgnet de seneste 30 døgn
+                    før i dag. Ingen kig frem.
+      'lag24'       samme time i går. Ingen kig frem.
+      'lag168'      samme time sidste uge. Ingen kig frem.
+
+    For de forudsete metoder er værdien i time t kun en funktion af timer før
+    det døgn, t ligger i. Uden historik (start af vinduet) falder lag24 og
+    lag168 tilbage til trailing30, og trailing30 til 0.
+    """
+    tider = pd.DatetimeIndex(ser.index)
+    if foresight == "realized":
+        return ser.copy()
+    if foresight == "profile":
+        noegle = tider.strftime("%Y-%m") + "_" + tider.strftime("%H")
+        return ser.groupby(noegle).transform("mean")
+
+    def _trailing30(s: pd.Series) -> pd.Series:
+        # Pr. time på døgnet: rul over døgn, og skub ét døgn, så i dag ikke er med.
+        return (s.groupby(pd.DatetimeIndex(s.index).hour)
+                 .transform(lambda x: x.rolling(30, min_periods=1).mean().shift(1)))
+
+    if foresight == "trailing30":
+        return _trailing30(ser).fillna(0.0)
+    if foresight in ("lag24", "lag168"):
+        lag = {"lag24": "24h", "lag168": "168h"}[foresight]
+        prog = ser.shift(freq=lag).reindex(tider)
+        return prog.fillna(_trailing30(ser)).fillna(0.0)
+    raise ValueError(f"ukendt foresight {foresight!r}")
+
+
 def fetch_balance_prices_github(
     idx: pd.DatetimeIndex,
     zone: str = "DK1",
@@ -511,26 +550,10 @@ def fetch_balance_prices_github(
             # prisen er urørt. De realiserede serier gemmes som <navn>__realized,
             # så run_case kan afregne ex post (balancing.activation.settle).
             tider = pd.DatetimeIndex(av_ds.time.values)
-            noegle = tider.strftime("%Y-%m") + "_" + tider.strftime("%H")
             for v in list(av_ds.data_vars):
                 ser = pd.Series(av_ds[v].values, index=tider)
                 av_ds[f"{v}__realized"] = ("time", ser.values)
-                profil = ser.groupby(noegle).transform("mean")
-                if act_cfg.foresight == "profile":
-                    prog = profil
-                elif act_cfg.foresight == "trailing30":
-                    # Gennemsnit af samme time på døgnet de seneste 30 døgn,
-                    # FØR i dag (shift(1)) — ingen kig ind i fremtiden.
-                    time_paa_doegn = tider.hour
-                    prog = (ser.groupby(time_paa_doegn)
-                               .transform(lambda x: x.rolling(30, min_periods=1)
-                                                     .mean().shift(1)))
-                    prog = prog.fillna(profil)
-                else:
-                    lag = {"lag24": "24h", "lag168": "168h"}[act_cfg.foresight]
-                    prog = ser.shift(freq=lag).reindex(tider)
-                    # Første døgn/uge har ingen historik: brug profilen der.
-                    prog = prog.fillna(profil)
+                prog = aktiverings_prognose(ser, act_cfg.foresight)
                 av_ds[v] = ("time", prog.values)
             print(f"  aktivering: foresight = {act_cfg.foresight}"
                   f" (settle = {act_cfg.settle})")
