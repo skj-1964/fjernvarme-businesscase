@@ -68,7 +68,7 @@ Tallene ligner rigtige, men er det ikke. Når den fungerer, skift til
 
 ```bash
 python run_case.py cases/andeby.yaml --data-source github \
-    --start 2026-01-05 --end 2026-01-17
+    --start 2026-01-05 --end 2026-01-16
 ```
 
 Første kørsel kloner `df-data` til `data/df-data/`. Vinduet løser på

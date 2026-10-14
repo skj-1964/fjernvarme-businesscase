@@ -17,7 +17,7 @@ periode og datakilde, og sammenlign deres KPI'er.
 ```bash
 # Fælles base, gentages i begge kørsler. Strammere gab, fordi resultatet
 # læses som en differens (se Solvergab nedenfor).
-BASE="cases/andeby.yaml --data-source github --start 2026-01-05 --end 2026-01-17 --mip-gap 0.0002"
+BASE="cases/andeby.yaml --data-source github --start 2026-01-05 --end 2026-01-16 --mip-gap 0.0002"
 
 # Reference
 python run_case.py $BASE
@@ -103,11 +103,11 @@ Til datakilden:
 | Flag | Beskrivelse |
 | ---- | ----------- |
 | `--start YYYY-MM-DD` | Startdato (kræver `--end`). |
-| `--end YYYY-MM-DD` | Slutdato (kræver `--start`), **inklusive** hele dagen. `--start 2026-01-05 --end 2026-01-17` giver 5. januar kl. 00 til 17. januar kl. 23 (UTC). Et klokkeslæt (`2026-01-17T12:00`) respekteres som det står. |
+| `--end YYYY-MM-DD` | Slutdato (kræver `--start`), **inklusive** hele dagen. `--start 2026-01-05 --end 2026-01-16` giver 5. januar kl. 00 til 16. januar kl. 23 (UTC), altså 12 døgn. Et klokkeslæt (`2026-01-16T12:00`) respekteres som det står. |
 | `--year YYYY` | Hele kalenderåret. Kan ikke kombineres med `--start`/`--end`. |
 
-Kursets faste vinduer er `--start 2026-01-05 --end 2026-01-17` (vinter) og
-`--start 2026-06-08 --end 2026-06-20` (sommer). DMI-området `fyn` mangler timer 1. januar og
+Kursets faste vinduer er `--start 2026-01-05 --end 2026-01-16` (vinter) og
+`--start 2026-06-08 --end 2026-06-19` (sommer), dvs. 5.–16. januar og 8.–19. juni. DMI-området `fyn` mangler timer 1. januar og
 28. februar–1. marts 2026; et vindue hen over dem stopper på dækningen.
 
 ### Varmelast

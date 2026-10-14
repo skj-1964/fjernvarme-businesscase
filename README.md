@@ -47,14 +47,14 @@ indstillingerne, og netværksadgang, der når github.com. [BEKRÆFT efter K1]
 
 > Klon https://github.com/skj-1964/fjernvarme-businesscase, installér
 > requirements.txt, og kør `cases/andeby.yaml` med `--data-source github`
-> på vintervinduet `--start 2026-01-05 --end 2026-01-17`. Vis mig dispatch-plottet og
+> på vintervinduet 5.–16. januar 2026 (`--start 2026-01-05 --end 2026-01-16`). Vis mig dispatch-plottet og
 > KPI-tabellen.
 
 Claude kører så:
 
 ```bash
 python run_case.py cases/andeby.yaml --data-source github \
-    --start 2026-01-05 --end 2026-01-17
+    --start 2026-01-05 --end 2026-01-16
 ```
 
 Den første kørsel kloner datarepoet [`df-data`](https://github.com/skj-1964/df-data)
@@ -72,7 +72,7 @@ source .venv/bin/activate            # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
 python run_case.py cases/andeby.yaml --data-source github \
-    --start 2026-01-05 --end 2026-01-17
+    --start 2026-01-05 --end 2026-01-16
 ```
 
 Resultaterne lander i `output/`. Se [`doc/WORKFLOW_LOKAL.md`](doc/WORKFLOW_LOKAL.md)
@@ -94,7 +94,7 @@ Udfyld [`doc/vaerksdata_skabelon.xlsx`](doc/vaerksdata_skabelon.xlsx)
 python scripts/vaerksark_til_yaml.py deltagere/mit_vaerk.xlsx
 python run_case.py deltagere/cases/<navn>.yaml --data-source github \
     --heat-csv deltagere/data/<navn>_abvaerk_hourly.csv \
-    --start 2026-01-05 --end 2026-01-17
+    --start 2026-01-05 --end 2026-01-16
 ```
 
 Konverteringen skriver selv kørselskommandoen og stopper højlydt på alt, den
@@ -132,11 +132,13 @@ modellens samlede driftsomkostning i kr. (objektiv) for vinduet i casen.
 
 | case | vindue | objektiv | kommando |
 |---|---|---:|---|
-| Spor A-anker | 2. marts–23. juni 2026 | **4.697.269** | `python run_case.py cases/billund_sporA.yaml --data-source github --with-balancing` |
+| Spor A-anker | 2. marts–23. juni 2026 ¹ | **4.697.269** | `python run_case.py cases/billund_sporA.yaml --data-source github --with-balancing` |
 | Spor B | 2. marts–30. juni 2026 | **3.964.586** | `python run_case.py cases/billund_sporB.yaml --data-source github --with-balancing --heat-csv data/billund_abvaerk_hourly_splejset_jun2026.csv` |
 | Billund rullende år | jul 2025–jun 2026 | **20.343.221** | `python run_case.py cases/billund_sporA_rullende.yaml --data-source github --with-balancing --heat-csv data/billund_abvaerk_hourly_splejset_jun2026.csv` |
 | Andeby helår, med balancering | jul 2025–jun 2026 | **23.048.152** | `python run_case.py cases/andeby.yaml --data-source github --with-balancing` |
 | Andeby helår, uden balancering | jul 2025–jun 2026 | **30.430.965** | `python run_case.py cases/andeby.yaml --data-source github` |
+
+¹ Spor A slutter 23. juni, fordi ankeret er regnet, før varmelasten for den sidste uge af juni blev splejset ind; Spor B og de rullende år går til 30. juni.
 
 Alle fem er optimale inden for casens gab. På en sandkasse med to kerner tog
 Spor A og Spor B ca. 2 minutter, Billunds rullende år 8 minutter og Andeby
@@ -171,7 +173,7 @@ et værk vil tjene.
 ## Data
 
 Markeds- og vejrdata hentes fra [`df-data`](https://github.com/skj-1964/df-data),
-som opdateres hver mandag: spot (15 minutters opløsning fra 2026), aFRR,
+som opdateres hver mandag: spot (15 minutters opløsning fra 1. oktober 2025), aFRR,
 mFRR-kapacitet, mFRR-aktivering, ubalancepris og DMI-observationer. Kilden er
 api.sysapp.dk, og Energi Data Service bruges til kontrol. Aktuel dækning står i
 [`DATA_VERSION.md`](https://github.com/skj-1964/df-data/blob/main/DATA_VERSION.md).

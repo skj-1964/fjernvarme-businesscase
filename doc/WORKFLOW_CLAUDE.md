@@ -15,7 +15,7 @@ indstillingerne, og netværksadgangen skal nå github.com. [BEKRÆFT efter K1]
 
    > Klon https://github.com/skj-1964/fjernvarme-businesscase, installér
    > requirements.txt, og kør `cases/andeby.yaml` med `--data-source github`
-   > på vintervinduet `--start 2026-01-05 --end 2026-01-17`. Vis mig
+   > på vintervinduet 5.–16. januar 2026 (`--start 2026-01-05 --end 2026-01-16`). Vis mig
    > dispatch-plottet og KPI-tabellen.
 
    Første kørsel kloner også datarepoet `df-data`. Et vindue på knap to uger

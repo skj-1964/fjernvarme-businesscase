@@ -76,7 +76,7 @@ Brug resultatet:
 ```bash
 python run_case.py deltagere/cases/<navn>.yaml --data-source github \
     --heat-params deltagere/cases/heat_load_params_<navn>.yaml \
-    --start 2026-01-05 --end 2026-01-17
+    --start 2026-01-05 --end 2026-01-16
 ```
 
 Filen indeholder fitstatistik (`_fit_r2`, `_fit_rmse`, `_n_observations`),

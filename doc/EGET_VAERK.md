@@ -103,11 +103,11 @@ hvad der skal bekræftes.
 ```bash
 python run_case.py deltagere/cases/<navn>.yaml --data-source github \
     --heat-csv deltagere/data/<navn>_abvaerk_hourly.csv \
-    --start 2026-01-05 --end 2026-01-17
+    --start 2026-01-05 --end 2026-01-16
 ```
 
-Det er kursets vintervindue. Sommervinduet er `--start 2026-06-08 --end 2026-06-20`.
-`--end` tager hele slutdagen med, så vinduerne er 13 døgn. De løser typisk
+Det er kursets vintervindue. Sommervinduet er `--start 2026-06-08 --end 2026-06-19`.
+`--end` tager hele slutdagen med, så vinduerne er 5.–16. januar og 8.–19. juni, 12 døgn hver. De løser typisk
 på sekunder til et halvt minut.
 
 **Tjek før du tror på tallene:** Kører enhederne i den rækkefølge, I faktisk
