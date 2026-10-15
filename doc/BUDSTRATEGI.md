@@ -81,7 +81,7 @@ Kapacitetsbuddet afgives dagen før. Værket kender kapacitetsprisen, når aukti
 | `lag24` | Samme time i går | Nej |
 | `lag168` | Samme time sidste uge | Nej |
 
-Med `settle: realized` afregnes buddet bagefter på det, der faktisk skete: Modellen løses først på prognosen, reservationerne låses, og driften løses igen på de realiserede aktiveringer. Forskellen mellem de to løsninger viser, hvor meget prognosen lovede for meget.
+Med `settle: realized` afregnes buddet bagefter på det, der faktisk skete: Modellen løses først på prognosen, reservationerne låses, og driften løses igen på de realiserede aktiveringer. Forskellen mellem de to løsninger viser, hvor meget prognosen lovede for meget (eller for lidt).
 
 De to løsninger skrives begge ud: `Trin 1-objektiv (på prognose)` og `Objektiv` (afregnet på det realiserede).
 
@@ -89,12 +89,12 @@ De to løsninger skrives begge ud: `Trin 1-objektiv (på prognose)` og `Objektiv
 
 En reserveret elkedel skal køre for at kunne stoppe. Modellen regner med den *forventede* aktivering, og uden en ekstra betingelse kan den lægge en plan, hvor elkedlen producerer mere varme, end nettet kan aftage, fordi aktiveringen forventes at fjerne forskellen. Udebliver aktiveringen, er der ingen steder at gøre af varmen.
 
-Med `robust_reservation: true` skal driften også holde, hvis buddet *ikke* aktiveres: varmen fra de reserverede enheder skal kunne afsættes i nettet eller i tanken. Det er sådan, værkerne planlægger i dag. Uden tank begrænser det, hvor meget værket kan byde om sommeren, og det er en væsentlig del af tankens værdi i balancemarkedet.
+Med `robust_reservation: true` skal driften også holde, hvis buddet *ikke* aktiveres: varmen fra de reserverede enheder skal kunne afsættes i nettet eller i tanken. Det er sådan, værkerne planlægger i dag, med og uden tank. Uden tank begrænser det, hvor meget værket kan byde om sommeren, og det er en del af tankens værdi i balancemarkedet. Indstillingen er standard, så den behøver ikke stå i casen.
 
 | Valg | Betydning |
 |---|---|
 | `robust_reservation: true` (standard) | Driften holder med og uden aktivering. Anbefalet |
-| `robust_reservation: false` | Driften holder kun med den forventede aktivering. Kan give "Modellen kan ikke løses" med `settle: realized` uden tank om sommeren |
+| `robust_reservation: false` | Driften holder kun med den forventede aktivering. Kun til sammenligning. Kan give "Modellen kan ikke løses" med `settle: realized` uden tank om sommeren |
 
 ### 3.5 Aktiveringen
 
@@ -119,7 +119,7 @@ Profilerne er bygget, så de ligner måder, værker faktisk byder på. Find den,
 | **1** | **Fast melding** | melder samme mængde ind hver dag uden at se på prisen | Lav, fast (fx 50 kr./MW/h) | Fast blok, altid (`driven`) | Konservativt skøn for en simpel praksis |
 | **2** | **Fast pris, fast mængde** | byder en fast mængde til en fast pris og lader auktionen afgøre | Fast pr. marked | Op til fast blok (`bound`) | Det mest almindelige udgangspunkt |
 | **3** | **Fast pris, alt vi kan** | byder hele den prækvalificerede effekt til en fast pris | Fast pr. marked | Alt hvad fysikken tillader | Viser hvad værket kan, hvis det byder fuldt |
-| **4** | **Beregnet pris** | regner sin budpris ud fra driften og brændslerne hver dag | Alternativomkostning | Op til fast blok eller alt | Hvor værket ønsker at bevæge sig hen |
+| **4** | **Beregnet pris** | regner sin budpris ud fra driften og brændslerne hver dag | Alternativomkostning | Op til fast blok eller alt | Et tal, der holder: værket byder kun, når det betaler sig |
 | **5** | **Teoretisk loft** | – | Ingen | Alt hvad fysikken tillader | Kun som øvre grænse. Aldrig som forventning |
 
 For alle profiler 1–4 anbefales:
@@ -147,7 +147,7 @@ balancing:
     per_unit_mw:
       vp_luft_vand: 6.0             # prækvalificeret eloptag pr. enhed
     total_mw: 14.0                  # samlet prækvalificeret kapacitet
-  robust_reservation: true          # driften skal holde, også uden aktivering
+  # robust_reservation: true er standard og behøver ikke stå her
   activation:
     foresight: trailing30
     settle: realized
@@ -163,8 +163,9 @@ balancing:
     mode: driven                    # blokken meldes ind, hver gang buddet går igennem
     # aFRR-blok + mFRR-blok må tilsammen IKKE overstige det, enhederne kan
     # bruge af el på samme tid. Ellers kan modellen ikke løses.
-    afrr: {cm_threshold_dkk_mw_h: 50, block_mw: 3.0}
-    mfrr: {cm_threshold_dkk_mw_h: 50, block_mw: 4.0}
+    # Andeby: varmepumpe + elkedel kan bruge ca. 5 MW el, så 2 + 3 MW.
+    afrr: {cm_threshold_dkk_mw_h: 50, block_mw: 2.0}
+    mfrr: {cm_threshold_dkk_mw_h: 50, block_mw: 3.0}
 ```
 
 ### Profil 2 · Fast pris, fast mængde
@@ -234,16 +235,14 @@ python run_case.py $W --with-balancing \
     --set balancing.activation.foresight=realized        # (2) byd frit, kender aktiveringerne
 python run_case.py $W --with-balancing \
     --set balancing.activation.foresight=trailing30 \
-    --set balancing.activation.settle=realized \
-    --set balancing.robust_reservation=true              # (3) byd frit, prognose
+    --set balancing.activation.settle=realized           # (3) byd frit, prognose
 python run_case.py $W --with-balancing \
     --set balancing.activation.foresight=trailing30 \
     --set balancing.activation.settle=realized \
-    --set balancing.robust_reservation=true \
-    --set balancing.reservation_gate.enabled=true         # (4) beregnet budpris, prognose
+    --set balancing.reservation_gate.enabled=true        # (4) beregnet budpris, prognose
 ```
 
-Kontroltal (14. oktober 2026):
+Kontroltal (15. oktober 2026, robust reservation som standard):
 
 | Kørsel | Prognosen lovede | Afregnet på det realiserede | Balancens værdi |
 |---|---:|---:|---:|
@@ -281,4 +280,4 @@ Bed Claude om at læse denne fil, sætte den fælles blok og en profil ind i din
 - Nedregulering og gasmotorens elproduktion i balancemarkedet
 - Risikoen for, at et accepteret bud ikke kan leveres (havari, afrimning af varmepumpe, netbegrænsninger). Brug budvindue eller månedsloft til at beskrive det
 - Prisvirkning af værkets egne bud. Modellen antager, at værket ikke flytter prisen
-- Kapacitetsprisen kendes stadig på forhånd i modellen
+- Kapacitetsprisen kendes stadig på forhånd i modellen, og spotprisen kendes, når timerne vælges
