@@ -92,6 +92,8 @@ def solve_and_extract(m: lp.Model, cfg: CaseConfig, solver: str = "highs") -> xr
     # linopy.Model bruger __slots__ og tillader ikke ekstra attributter.
     # add_unit_commitment() tilføjer altid "uc_state_transition" når mindst én
     # UC-enhed er aktiv, så tilstedeværelsen af den constraint er en pålidelig
+    AGGREGATOR = 4096  # HiGHS presolve_rule_off-bit for 'aggregator'
+
     # MILP-indikator.
     is_milp = "uc_state_transition" in m.constraints
 
@@ -108,6 +110,16 @@ def solve_and_extract(m: lp.Model, cfg: CaseConfig, solver: str = "highs") -> xr
     solver_options: dict = {}
     if is_milp and solver == "highs":
         solver_options = cfg.solver.as_options()
+        # HiGHS' presolve-regel 'aggregator' gav 15/10-2026 en forkert løsning
+        # (for dyr, rapporteret som optimal med en nedre grænse, der ikke
+        # holdt), når planen uden aktivering var i modellen og der ikke var
+        # nogen tank. Planen uden aktivering er en næsten parallel kopi af
+        # driften, og det er den struktur, reglen fejler på. HiGHS 1.14 og 1.15.
+        # Reglen slås derfor fra i de modeller, medmindre casen selv sætter
+        # solver.presolve_rule_off. Se tests/test_presolve_aggregator.py.
+        if ("presolve_rule_off" not in solver_options
+                and "heat_prod_noact" in m.variables):
+            solver_options["presolve_rule_off"] = AGGREGATOR
         opts_str = ", ".join(f"{k}={v}" for k, v in solver_options.items())
         print(f"  MILP-mode: solver={solver}, options: {opts_str}")
 

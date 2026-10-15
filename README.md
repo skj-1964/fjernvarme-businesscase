@@ -134,7 +134,7 @@ for vinduet i casen.
 
 | case | vindue | objektiv | kommando |
 |---|---|---:|---|
-| Spor A-anker | 2. marts–23. juni 2026 ¹ | **4.698.270** | `python run_case.py cases/billund_sporA.yaml --data-source github --with-balancing` |
+| Spor A-anker | 2. marts–23. juni 2026 ¹ | **4.698.390** | `python run_case.py cases/billund_sporA.yaml --data-source github --with-balancing` |
 | Spor B | 2. marts–30. juni 2026 | **3.964.586** | `python run_case.py cases/billund_sporB.yaml --data-source github --with-balancing --heat-csv data/billund_abvaerk_hourly_splejset_jun2026.csv` |
 | Billund rullende år | jul 2025–jun 2026 | **20.402.639** | `python run_case.py cases/billund_sporA_rullende.yaml --data-source github --with-balancing --heat-csv data/billund_abvaerk_hourly_splejset_jun2026.csv` |
 | Andeby helår, med balancering | jul 2025–jun 2026 | **23.066.846** | `python run_case.py cases/andeby.yaml --data-source github --with-balancing` |

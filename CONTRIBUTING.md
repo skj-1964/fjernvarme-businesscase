@@ -32,10 +32,10 @@ Vi tager imod alt der gør modellen mere brugbar for danske fjernvarme­selskabe
    dokumentation hvor relevant.
 4. **Test før I sender.** Hent først `df-data`. Uden den springer `pytest`
    alle tests over, og udskriften ligner et grønt resultat
-   (`430 skipped`), selvom intet er testet:
+   (`433 skipped`), selvom intet er testet:
    ```bash
    git clone --depth 1 https://github.com/skj-1964/df-data.git data/df-data
-   python -m pytest -q tests          # forventet: 430 passed, 0 skipped
+   python -m pytest -q tests          # forventet: 433 passed, 0 skipped
    ```
    Står der kun `skipped`, mangler `data/df-data/`. Har I en ældre klon, så
    opdatér den med `git -C data/df-data pull`.
@@ -44,7 +44,7 @@ Vi tager imod alt der gør modellen mere brugbar for danske fjernvarme­selskabe
    (ca. 2 minutter):
    ```bash
    python run_case.py cases/billund_sporA.yaml --data-source github --with-balancing
-   # Objektiv: 4,698,270 DKK
+   # Objektiv: 4,698,390 DKK
    ```
    Ændrer I noget, der flytter tallene med vilje, så skriv det gamle og det
    nye tal i PR'en, og ret referencetallene i README.

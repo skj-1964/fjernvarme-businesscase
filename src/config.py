@@ -715,11 +715,20 @@ class Solver:
     time_limit: float = 600.0
     presolve: str = "on"
     parallel: str = "on"
+    # HiGHS-presolveregler, der er slået fra (bitmaske; 4096 = aggregator).
+    # None = automatisk: aggregator slås fra, når modellen har planen uden
+    # aktivering (robust reservation), ellers HiGHS' standard. Se solve.py og
+    # tests/test_presolve_aggregator.py. 0 = alle regler tilladt.
+    presolve_rule_off: Optional[int] = None
 
     def __post_init__(self) -> None:
         if not (0.0 <= self.mip_rel_gap < 1.0):
             raise ValueError(
                 f"solver.mip_rel_gap skal ligge i [0, 1), fik {self.mip_rel_gap}"
+            )
+        if self.presolve_rule_off is not None and int(self.presolve_rule_off) < 0:
+            raise ValueError(
+                f"solver.presolve_rule_off skal vaere >= 0, fik {self.presolve_rule_off}"
             )
         if self.mip_abs_gap < 0.0:
             raise ValueError(
@@ -737,6 +746,8 @@ class Solver:
             "time_limit": self.time_limit,
             "presolve": self.presolve,
             "parallel": self.parallel,
+            **({} if self.presolve_rule_off is None
+               else {"presolve_rule_off": int(self.presolve_rule_off)}),
         }
 
 
@@ -1111,7 +1122,8 @@ def load_case(
     # Solvertolerance (valgfri blok; standard = absolut-koersel)
     solver_raw = raw.get("solver", {}) or {}
     ukendte = set(solver_raw) - {
-        "mip_rel_gap", "mip_abs_gap", "time_limit", "presolve", "parallel"}
+        "mip_rel_gap", "mip_abs_gap", "time_limit", "presolve", "parallel",
+        "presolve_rule_off"}
     if ukendte:
         raise ValueError(f"ukendte noegler i solver-blokken: {sorted(ukendte)}")
     solver_cfg = Solver(**solver_raw)
