@@ -71,7 +71,17 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+import sys
+import warnings
+
+import linopy
 import pandas as pd
+
+# linopy 0.10 varsler i hver kørsel, at regnereglerne skifter i v1
+# ("Under v1 ... raises ValueError"). Modellen bruger de nuværende regler, som
+# kontroltallene er regnet med, og versionen er låst i requirements.txt.
+# Advarslerne ligner fejl for en deltager og hans Claude, så de skjules.
+warnings.filterwarnings("ignore", category=linopy.LinopySemanticsWarning)
 
 from src.config import load_case
 from src.data_loader import (
@@ -613,7 +623,13 @@ def main():
         raise FileNotFoundError(f"--heat-csv: filen findes ikke: {args.heat_csv}")
 
     print(f"Indlæser case: {args.case}")
-    cfg = load_case(args.case, overrides=args.set_overrides)
+    try:
+        cfg = load_case(args.case, overrides=args.set_overrides)
+    except ValueError as e:
+        # Fejl i casen eller i --set: beskeden er skrevet til at blive læst,
+        # så den vises uden traceback.
+        print(f"\nFEJL i casen eller --set: {e}", file=sys.stderr)
+        sys.exit(2)
 
     # Solvertolerance: CLI slaar casen. Advar hoejlydt naar et loest gap
     # kombineres med noget, der skal laeses som en differens.

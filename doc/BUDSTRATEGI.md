@@ -258,7 +258,7 @@ Kontroltal (15. oktober 2026, robust reservation som standard):
 Bed Claude om at læse denne fil, sætte den fælles blok og en profil ind i din case med dine egne enhedsnavne og din prækvalificerede effekt, og køre et kort vindue med og uden `--with-balancing`. Typiske beskeder:
 
 - **"findes ikke i casen"**: et enhedsnavn i blokken passer ikke. Beskeden viser de gyldige navne.
-- **"Modellen kan ikke løses"**: typisk profil 1, hvor aFRR- og mFRR-blokken tilsammen er større end enhedernes eleffekt. Gør blokkene mindre, eller brug profil 2. Er `robust_reservation` sat til `false`, kan det også ske i sommervinduer uden tank.
+- **"Modellen kan ikke løses"**: typisk profil 1, hvor aFRR- og mFRR-blokken tilsammen er større end enhedernes eleffekt. Gør blokkene mindre, eller brug profil 2. Profil 1 uden tank om sommeren kan også være uløselig: den faste blok tvinger enhederne til at køre, og varmen kan ikke afsættes, når buddet ikke aktiveres. Brug profil 2 uden tank.
 - **Profil 4 giver 0 kr.**: værkets alternativomkostning ligger over kapacitetsprisen i vinduet. Det er ikke en fejl.
 - **Et kort vindue kan ikke ganges op til et år.** Brug det til at sammenligne profiler.
 

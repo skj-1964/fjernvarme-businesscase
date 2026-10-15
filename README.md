@@ -41,7 +41,7 @@ blev udviklet: en fagperson uden programmeringsbaggrund i samtale med Claude.
 
 **Du skal have:** en Claude Pro- eller Max-konto (gratiskontoen rækker ikke
 til at klone repoet og køre modellen) med kodekørsel slået til under
-indstillingerne, og netværksadgang, der når github.com. [BEKRÆFT efter K1]
+indstillingerne, og netværksadgang, der når github.com. Testet fra en ny Pro-konto 14. oktober 2026.
 
 **Første prompt:**
 
@@ -62,7 +62,7 @@ til `data/df-data/`. Et vindue på knap to uger løser på under et minut.
 Se [`doc/WORKFLOW_CLAUDE.md`](doc/WORKFLOW_CLAUDE.md) for arbejdsformen
 over flere sessioner.
 
-### Vej A — lokalt (kræver Python 3.10–3.13)
+### Vej A — lokalt (kræver Python 3.11–3.13)
 
 ```bash
 git clone https://github.com/skj-1964/fjernvarme-businesscase.git
@@ -127,7 +127,8 @@ Skifter en af de tre, skifter tallet.
 
 ## Referencetal
 
-Kørt 15. oktober 2026 med `df-data` `10be997`, efter at robust reservation
+Kørt 15. oktober 2026 med `df-data` fra 5. oktober 2026 eller senere (nye
+dataopdateringer ændrer ikke januar–juni 2026), efter at robust reservation
 blev standard, og de rullende Billund-cases starter flis- og halmkedlen
 slukket 1. juli. Beløb er modellens samlede driftsomkostning i kr. (objektiv)
 for vinduet i casen.
@@ -136,13 +137,15 @@ for vinduet i casen.
 |---|---|---:|---|
 | Spor A-anker | 2. marts–23. juni 2026 ¹ | **4.698.390** | `python run_case.py cases/billund_sporA.yaml --data-source github --with-balancing` |
 | Spor B | 2. marts–30. juni 2026 | **3.964.586** | `python run_case.py cases/billund_sporB.yaml --data-source github --with-balancing --heat-csv data/billund_abvaerk_hourly_splejset_jun2026.csv` |
-| Billund rullende år | jul 2025–jun 2026 | **20.402.639** | `python run_case.py cases/billund_sporA_rullende.yaml --data-source github --with-balancing --heat-csv data/billund_abvaerk_hourly_splejset_jun2026.csv` |
-| Andeby helår, med balancering | jul 2025–jun 2026 | **23.066.846** | `python run_case.py cases/andeby.yaml --data-source github --with-balancing` |
+| Billund rullende år | jul 2025–jun 2026 | **20.341.652** | `python run_case.py cases/billund_sporA_rullende.yaml --data-source github --with-balancing --heat-csv data/billund_abvaerk_hourly_splejset_jun2026.csv` |
+| Andeby helår, med balancering | jul 2025–jun 2026 | **23.067.291** ² | `python run_case.py cases/andeby.yaml --data-source github --with-balancing` |
 | Andeby helår, uden balancering | jul 2025–jun 2026 | **30.430.965** | `python run_case.py cases/andeby.yaml --data-source github` |
 
 ¹ Spor A slutter 23. juni, fordi ankeret er regnet, før varmelasten for den sidste uge af juni blev splejset ind; Spor B og de rullende år går til 30. juni.
 
-Alle fem er optimale inden for casens gab. På en sandkasse med to kerner tog
+² Stopper ved casens tidsgrænse på 1 time med gab 0,12 % (mål 0,1 %).
+
+De fire første er optimale inden for casens gab. På en sandkasse med to kerner tog
 Spor A og Spor B ca. 2 minutter, Billunds rullende år 4 minutter, Andeby uden
 balancering 6–10 minutter og Andeby med balancering ca. 1 time (robust
 reservation fordobler driftsdelen; ca. 3,5 GB hukommelse). Kør ikke helårene live; regn dem på

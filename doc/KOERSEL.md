@@ -62,8 +62,8 @@ ellers kodens standard).
   i ét løb. Se [`EGET_VAERK.md`](EGET_VAERK.md#helår-og-løsetid).
 
 Casefiler fra konverteringen og `andeby.yaml` har selv en `solver:`-blok
-(gab 0,1 %, tidsgrænse 3.600 s). Billund-casene bruger kodens standard
-(0,5 %, 5.000 kr, 600 s).
+(gab 0,1 %, tidsgrænse 3.600 s), og det har `billund_idag.yaml` også. De
+øvrige Billund-cases bruger kodens standard (0,5 %, 5.000 kr, 600 s).
 
 ---
 
@@ -163,7 +163,7 @@ Overrides sorteres alfabetisk, så samme scenarie altid giver samme filnavn.
 | `_manifest.json` | objektiv, varmebehov, nettab, balanceindtægt, tankarbitrage, CO₂; kørslens flag, overrides, commit og solverstatus |
 | `_kpi.csv` | pr. enhed: produktion, andel, kapacitetsfaktor og driftstimer |
 | `_monthly.csv` | produktion pr. enhed og måned, varmebehov, gennemsnitlig spotpris og udetemperatur |
-| `_hourly.csv` | timeværdier for alle enheder, tanke og priser |
+| `_hourly.csv` | timeværdier for alle enheder, tanke og priser. Vinduets første time er udeladt (lagerbalancen bindes fra time 2), så summer i timefilen afviger lidt fra KPI- og månedstallene |
 | `_dispatch.png` | dispatch-plot for de første `--days` dage |
 | `_dispatch.nc` | hele løsningen (bruges af `scripts/capture_rate.py`) |
 

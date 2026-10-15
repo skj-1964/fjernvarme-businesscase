@@ -103,3 +103,6 @@ HiGHS.log
 
 # Fiktive markeder bygget af scripts/fiktivt_balancemarked.py
 data/df-data-*/
+
+# Casezip'er fra værker pakket ud i roden (fx aulum_case/, kvr_case/) — deltagerdata
+/*_case/

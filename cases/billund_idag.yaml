@@ -43,26 +43,9 @@
 # ==============================================================================
 # BILLUND VARMEVÆRK — Backtest mod realiseret drift, jan–april 2026
 # ==============================================================================
-# Backtest af den NYE balancering (activation_value, kovarians-korrekt av(t))
-# mod Billunds realiserede balanceindtægt jan–april 2026.
-#
-# Centrale forskelle ift. H2 2025-fase2-casen:
-#   * balancing.method = activation_value (ny). Skift til legacy for A/B:
-#       --balancing-method legacy
-#   * elkedel_ny er IKKE i drift (under inkøring) → enabled: false
-#   * ancillary_caps: VP ≤ 6 MW (altid) + total 14 MW = Billunds faktiske
-#     prækvalificering (uafhængigt af hvilke kedler der er enabled).
-#     Erstatter det gamle shared_reserve_cap_mw.
-#   * bid_strategy: op-bud = spot + 500 (Tier 1; bånd op til +2000 er Tier 2).
-#
-# KØRES MED:
-#   python run_case.py cases/billund_backtest_jan_apr_2026.yaml \
-#       --data-source github --with-balancing \
-#       --start 2026-01-01 --end 2026-04-30 \
-#       --heat-csv data/billund_abvaerk_hourly.csv
-#
-# A/B mod gammel metode (samme case, kun toggle):
-#   ... --balancing-method legacy
+# Opbygningen stammer fra backtest-casen jan–apr 2026. Anlæg, lofter og
+# netloft er sat til Billund i dag; se hovedet øverst i filen. Afsnittene
+# nedenfor om validering er historik fra backtesten.
 #
 # VALIDERING: sammenlign mod realiseret balance-facit jan–apr 2026 pr. produkt
 # (aFRR akt/kap, mFRR akt/kap). Forvent at activation_value rammer aFRR-
@@ -201,7 +184,7 @@ units:
       # Gaten nulstiller VP'ens reservation før denne dato; varmedispatch urørt.
     commissioned: 2025
 
-  # ---- Elkedel ny (30 MW) — IKKE i drift jan–apr 2026 (under inkøring) ----
+  # ---- Elkedel ny (30 MW) — i drift og prækvalificeret (Billund 15/10-2026) ----
   elkedel_ny:
     enabled: true
     type: "electric_boiler"
@@ -358,13 +341,10 @@ storage:
 #   down_markdown udeladt → up-only (som nuværende modelscope).
 #
 # ancillary_caps:
-#   per_unit_mw: VP ≤ 6 MW (aFRR+mFRR samlet), håndhæves ALTID.
-#   total_mw:    Σ alle bud ≤ 14 MW = Billunds FAKTISKE prækvalificerede
-#                reservekapacitet (fælles loft over begge markeder/alle enheder
-#                pr. time). Var tidligere 15 (sat ud fra elkedel_gl alene); de
-#                14 er den reelle prækvalificering og bruges i begge cases.
-#                Grænsen følger prækvalificering, ikke hvilke enheder der er
-#                enabled eller hvilket tidsvindue der køres.
+#   per_unit_mw: VP ≤ 5,52 MW (aFRR+mFRR samlet), håndhæves ALTID.
+#   total_mw:    Σ alle bud ≤ 47,52 MW = Billunds prækvalificering med alle tre
+#                el-enheder (VP 5,52 + elkedel_gl 12 + elkedel_ny 30), 15/10-2026.
+#                Det samlede eloptag begrænses desuden af grid-blokken (33 MW).
 balancing:
   method: activation_value
   bid_strategy:

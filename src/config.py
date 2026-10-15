@@ -843,9 +843,11 @@ def _apply_override(raw: dict, dotted_path: str, value_str: str) -> None:
         if key not in cursor:
             path_so_far = ".".join(parts[:i])
             available = sorted(cursor.keys()) if isinstance(cursor, dict) else []
+            hvor = f"under '{path_so_far}'" if path_so_far else "på øverste niveau i casen"
             raise ValueError(
-                f"--set {dotted_path}: nøgle '{key}' findes ikke ved "
-                f"'{path_so_far}'. Gyldige nøgler: {available}"
+                f"--set {dotted_path}: nøgle '{key}' findes ikke {hvor}. "
+                f"Gyldige nøgler: {available}. --set kan kun ændre nøgler, der "
+                f"allerede står i casen; tilføj blokken i YAML-filen."
             )
         cursor = cursor[key]
 

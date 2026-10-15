@@ -209,8 +209,29 @@ def test_timeslut_stempler_flyttes_en_time_tilbage(tmp_path):
 
 def test_timeslut_uden_flag_stopper_i_stedet_for_at_flytte_tavst(tmp_path):
     r = _kør_med(tmp_path, _timeslut_serie)
+    ud = r.stdout + r.stderr
     assert r.returncode != 0
-    assert "uden for perioden" in r.stdout + r.stderr
+    assert "uden for perioden" in ud
+    # Beskeden skal pege på flaget og vise tidsstemplet, som det står i arket.
+    assert "Kør igen med --timeslut" in ud
+    assert "2026-07-01 00:00" in ud
+
+
+def _timestart_serie(wb):
+    import pandas as pd
+    ws = wb["Timedata"]
+    ws["B2"] = "dansk lokaltid"
+    start_utc = pd.date_range("2025-06-30 22:00", periods=8760, freq="h", tz="UTC")
+    for i, s in enumerate(start_utc.tz_convert("Europe/Copenhagen").tz_localize(None)):
+        ws.cell(6 + i, 1).value = s.to_pydatetime()
+        ws.cell(6 + i, 2).value = 2.0
+
+
+def test_timeslut_paa_timens_start_peger_paa_at_fjerne_flaget(tmp_path):
+    r = _kør_med(tmp_path, _timestart_serie, "--timeslut")
+    ud = r.stdout + r.stderr
+    assert r.returncode != 0
+    assert "Kør igen uden --timeslut" in ud
 
 
 # ------------------------------------------------- Aulum: brøkdele af en time

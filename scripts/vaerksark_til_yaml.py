@@ -382,13 +382,34 @@ def laes_timedata(sti: Path, slugnavn: str, ud_dir: Path, overskriv: bool,
     vindue_timer = int((v_slut - v_start) / timedelta(hours=1)) + 1
     uden_for = (df["timestamp"] < v_start) | (df["timestamp"] > v_slut)
     if uden_for.any():
-        eks = "; ".join(f"række {int(r.raekke)}: {r.timestamp:%Y-%m-%d %H:%M}"
+        def som_i_arket(t):
+            # Vis tidsstemplet, som det står i arket (før UTC og --timeslut).
+            t = pd.Timestamp(t) + (timedelta(hours=1) if timeslut else timedelta(0))
+            if tz != "UTC":
+                t = t.tz_localize("UTC").tz_convert("Europe/Copenhagen").tz_localize(None)
+            return f"{t:%Y-%m-%d %H:%M}"
+        eks = "; ".join(f"række {int(r.raekke)}: {som_i_arket(r.timestamp)}"
                         for r in df[uden_for].head(5).itertuples())
+        en = timedelta(hours=1)
+        efter = df["timestamp"] > v_slut
+        foer = df["timestamp"] < v_start
+        if (not timeslut and not foer.any()
+                and (df.loc[efter, "timestamp"] == v_slut + en).all()
+                and df["timestamp"].min() == v_start + en):
+            raad = ("Serien starter 1. juli kl. 01:00 og slutter 1. juli kl. 00:00: "
+                    "stemplerne er timens SLUT. Kør igen med --timeslut "
+                    "(slet ikke rækken).")
+        elif (timeslut and not efter.any()
+                and (df.loc[foer, "timestamp"] == v_start - en).all()):
+            raad = ("Første time ligger før 1. juli kl. 00:00: stemplerne er timens "
+                    "START. Kør igen uden --timeslut.")
+        else:
+            raad = ("Et tidsstempel som 1900 betyder som regel, at cellen ikke er "
+                    "en dato. Ret eller slet rækkerne.")
         raise ArkFejl(
             f"{int(uden_for.sum())} tidsstempler i Timedata ligger uden for "
-            f"perioden 1. juli 2025 – 30. juni 2026 — {eks}. Et tidsstempel som "
-            "1900 betyder som regel, at cellen ikke er en dato. Ret eller slet "
-            "rækkerne.")
+            f"perioden 1. juli 2025 – 30. juni 2026 (vist som i arket) — {eks}. "
+            f"{raad}")
     spaend = df["timestamp"].iloc[-1] - df["timestamp"].iloc[0]
     fulde_timer = int(spaend / timedelta(hours=1)) + 1
     huller = fulde_timer - len(df)
@@ -1422,9 +1443,10 @@ def skriv_yaml(sti: Path, d: dict, vaerk: str, kilde: Path,
 # Tidsvinduet nedenfor er sat af timedataens første og sidste time. Alt andet
 # stammer fra arkene Anlaeg og Priser.
 #
-# TJEK DISSE FIRE, FØR DU STOLER PÅ TALLENE:
-#   1. balancing-blokken nedenfor er slået fra. Slå den til, og udfyld lofterne,
-#      hvis værket faktisk er prækvalificeret hos Energinet.
+# TJEK DISSE PUNKTER, FØR DU STOLER PÅ TALLENE:
+#   1. Casen har ingen balancing-blok, så balancemarkedet er slået fra. Er
+#      værket prækvalificeret hos Energinet, så se doc/BUDSTRATEGI.md for
+#      færdige blokke.
 #   2. tankenes startfyldning er sat til halvt fuld. Ved korte vinduer betyder
 #      det noget; ved et helt år med cycle_binding betyder det lidt.
 #   3. min driftstid og startomkostninger er dem, du skrev i arket. De styrer,
@@ -1645,19 +1667,23 @@ def main() -> int:
     print(f"  Enheder: {len(units)} · tanke: {len(storage)}")
     if csv_sti is None:
         print(f"\nSkrevet:\n  {yaml_sti}\n")
-        print("Kør den med:\n"
-              f"  python run_case.py {yaml_sti.as_posix()} --data-source github\n")
+        print("Kør kursets vintervindue (sekunder):\n"
+              f"  python run_case.py {yaml_sti.as_posix()} --data-source github \\\n"
+              "      --start 2026-01-05 --end 2026-01-16\n"
+              "Uden --start/--end regnes hele året (minutter).\n")
         print("Der er INGEN målt varmelast i denne case. Varmen dannes af "
               "heat_load_params ud fra DMI-vejrdata og den årsproduktion, der "
               "stod i arket. Tallene viser, hvad anlægget kunne gøre på et "
               "normalår — ikke hvad det gjorde.")
     else:
         print(f"\nSkrevet:\n  {yaml_sti}\n  {csv_sti}\n")
-        print("Kør den med:\n"
+        print("Kør kursets vintervindue (sekunder):\n"
               f"  python run_case.py {yaml_sti.as_posix()} --data-source github \\\n"
-              f"      --heat-csv {csv_sti.as_posix()}\n")
-    print("Balancemarkedet er slået fra i den genererede case. Læs blokken øverst "
-          "i filen, før du tilføjer det.")
+              f"      --heat-csv {csv_sti.as_posix()} \\\n"
+              "      --start 2026-01-05 --end 2026-01-16\n"
+              "Uden --start/--end regnes hele året (minutter).\n")
+    print("Balancemarkedet er slået fra i den genererede case. Se doc/BUDSTRATEGI.md, "
+          "før du tilføjer det.")
     return 0
 
 

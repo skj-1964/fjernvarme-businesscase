@@ -55,3 +55,13 @@ def df_data_head(_require_df_data) -> str:
         ).strip()
     except Exception:                       # pragma: no cover — kun diagnostik
         return "ukendt"
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    """Skriv til sidst, hvis df-data mangler, så '433 skipped' ikke ligner grønt.
+    (Vises også med -q, i modsætning til pytest_report_header.)"""
+    if not (DF_DATA_DIR / ".git").exists():
+        terminalreporter.write_line(
+            f"ADVARSEL: df-data-klonen mangler ({DF_DATA_DIR}). Alle tests er "
+            "sprunget over, intet er testet. Hent den: git clone --depth 1 "
+            f"https://github.com/skj-1964/df-data.git {DF_DATA_DIR}", red=True)

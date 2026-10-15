@@ -7,7 +7,7 @@ ikke er fortrolig med kommandolinjen, så start i stedet med
 
 ## Forudsætninger
 
-- **Python 3.10–3.13** (testet) — tjek med `python --version`
+- **Python 3.11–3.13** (testet; linopy 0.10 kræver 3.11) — tjek med `python --version`
 - **git** — tjek med `git --version`
 - **Visual Studio Code** anbefales (gratis, indbygget git-integration)
 - ~5 GB ledig disk (Python-pakker + cachet markedsdata)
@@ -176,7 +176,7 @@ bestemt notat eller møde.
   `git config core.fileMode false`. Filer, der allerede står som `755` i
   historikken, rettes med `git update-index --chmod=-x <fil>`.
 - **Forskellige Python-versioner mellem maskiner** — hold jer til samme
-  version på alle maskiner. Vi har testet på 3.10–3.13.
+  version på alle maskiner. Vi har testet på 3.11–3.13.
 - **Glemt at aktivere virtual env** — symptomet er `ModuleNotFoundError:
   linopy`. Aktivér med `source .venv/bin/activate`.
 - **Gammel `df-data`-klon** — en test eller kørsel, der fejler på et

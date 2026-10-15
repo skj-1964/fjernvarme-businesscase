@@ -32,10 +32,10 @@ Vi tager imod alt der gør modellen mere brugbar for danske fjernvarme­selskabe
    dokumentation hvor relevant.
 4. **Test før I sender.** Hent først `df-data`. Uden den springer `pytest`
    alle tests over, og udskriften ligner et grønt resultat
-   (`433 skipped`), selvom intet er testet:
+   (`434 skipped`), selvom intet er testet:
    ```bash
    git clone --depth 1 https://github.com/skj-1964/df-data.git data/df-data
-   python -m pytest -q tests          # forventet: 433 passed, 0 skipped
+   python -m pytest -q tests          # forventet: 434 passed, 0 skipped
    ```
    Står der kun `skipped`, mangler `data/df-data/`. Har I en ældre klon, så
    opdatér den med `git -C data/df-data pull`.
