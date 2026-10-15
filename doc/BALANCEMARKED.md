@@ -32,7 +32,12 @@ og `r_mfrr[i,t]` (elektriske MW). De styres af:
   - `balancing.ancillary_caps` (anbefalet): `per_unit_mw` pr. enhed (aFRR +
     mFRR, altid håndhævet) og `total_mw`, ét samlet loft over alle bud og begge
     markeder pr. time, fx værkets prækvalifikation. Billund: varmepumpe
-    5,52 MW, i alt 17,52 MW.
+    5,52 MW, i alt 17,52 MW (marts–juni 2026) og 47,52 MW med den nye elkedel.
+- **Nettilslutning:** `grid: {max_consumption_mw: ...}` er et loft over det
+  samlede eloptag fra varmepumper og elkedler pr. time (Σ varme/COP). Det
+  gælder driften før aktivering og, med robust reservation, planen uden
+  aktivering, og det begrænser dermed også reservationen gennem footroom.
+  Elproduktion modregnes ikke. Billund: 33 MW.
   - `balancing.shared_reserve_cap_mw`: ældre form af det samlede loft.
   - `ancillary.afrr_max_bid_mw` / `mfrr_max_bid_mw` pr. enhed og
     `ancillary_groups`: pris-tager-beskyttelse, når intet samlet loft er sat.
@@ -185,7 +190,8 @@ python run_case.py cases/billund_idag.yaml --data-source github --with-balancing
 ```
 
 `cases/billund_idag.yaml` er Billunds anlæg i dag (den nye elkedel med,
-varmepumpen byder hele året) og er brugt i rapport v4, afsnit 4.5. Casen og
+varmepumpen byder hele året, alle tre el-enheder prækvalificeret, 47,52 MW,
+og nettilslutningen begrænset til 33 MW el) og er brugt i rapport v4, afsnit 4.5. Casen og
 markedet er scenarier: de er ikke valideret og beskriver ikke et bestemt år.
 Tal regnet på dem må ikke præsenteres som data. Byg markedet igen
 (`--overskriv`), når `df-data` er opdateret.

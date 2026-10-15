@@ -342,6 +342,7 @@ def build_model(cfg: CaseConfig, data: xr.Dataset) -> lp.Model:
     # Planen er en betingelse, ikke en omkostning: objektivet regnes stadig på
     # den forventede aktivering.
     # --------------------------------------------------------------------------
+    heat_prod_0 = None
     if bal is not None and getattr(cfg, "robust_reservation", True):
         from .balancing import _add_footroom_constraints
 
@@ -391,6 +392,33 @@ def build_model(cfg: CaseConfig, data: xr.Dataset) -> lp.Model:
                               name="heat_balance_noact")
         print("  Robust reservation: driften skal også holde uden aktivering "
               "(egen produktion og tank, delt unit commitment og reservation)")
+
+    # --------------------------------------------------------------------------
+    # Nettilslutning (15/10-2026): samlet eloptag fra el-forbrugende enheder
+    #   Σ_i heat_prod[i,t] / COP_i(t) ≤ grid_max_consumption_mw
+    # Loftet gælder den planlagte drift før aktivering (hovedplanen) og, med
+    # robust reservation, også planen uden aktivering. Elproduktion (gasmotor)
+    # modregnes ikke. Elkedler: COP = 1/|alpha|.
+    # --------------------------------------------------------------------------
+    grid_max = getattr(cfg, "grid_max_consumption_mw", None)
+    if grid_max is not None:
+        from .balancing import _get_cop_series
+        el_units = [u for u in unit_names if cfg.units[u].fuel == "electricity"]
+        if not el_units:
+            raise ValueError("grid.max_consumption_mw er sat, men casen har ingen "
+                             "aktive el-forbrugende enheder.")
+        inv_cop = {u: 1.0 / _get_cop_series(cfg.units[u], data) for u in el_units}
+        for navn, hp in (("grid_max_consumption", heat_prod),
+                         ("grid_max_consumption_noact", heat_prod_0)):
+            if hp is None:
+                continue
+            el = None
+            for u in el_units:
+                led = hp.sel(unit=u) * inv_cop[u]
+                el = led if el is None else el + led
+            m.add_constraints(el <= grid_max, name=navn)
+        print(f"  Nettilslutning: samlet eloptag ≤ {grid_max:g} MW "
+              f"({', '.join(el_units)})")
 
     # --------------------------------------------------------------------------
     # Målfunktion: total driftsomkostning (+ UC-omkostninger, − balancing-indtægt)

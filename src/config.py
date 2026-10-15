@@ -782,6 +782,10 @@ class CaseConfig:
     # Solvertolerance. Se Solver-docstring: standarden er til ABSOLUTTE
     # koersler, ikke til scenariedifferenser.
     solver: "Solver" = field(default_factory=Solver)
+    # Nettilslutning: loft over det samlede eloptag fra el-forbrugende enheder
+    # (varmepumper og elkedler), MW el pr. time. None = intet loft. Blokken
+    # grid: {max_consumption_mw: ...} i casen (15/10-2026, Billund 33 MW).
+    grid_max_consumption_mw: Optional[float] = None
     # Eksterne datakilder. Paakraevet -- se DataOptions om hvorfor der
     # ikke er nogen default.
     data: "DataOptions" = None  # type: ignore[assignment]
@@ -1112,6 +1116,18 @@ def load_case(
         raise ValueError(f"ukendte noegler i solver-blokken: {sorted(ukendte)}")
     solver_cfg = Solver(**solver_raw)
 
+    # Nettilslutning (valgfri blok)
+    grid_raw = raw.get("grid", {}) or {}
+    ukendte_grid = set(grid_raw) - {"max_consumption_mw"}
+    if ukendte_grid:
+        raise ValueError(f"ukendte noegler i grid-blokken: {sorted(ukendte_grid)}. "
+                         f"Gyldige: ['max_consumption_mw']")
+    grid_max = grid_raw.get("max_consumption_mw")
+    if grid_max is not None:
+        grid_max = float(grid_max)
+        if grid_max <= 0:
+            raise ValueError(f"grid.max_consumption_mw skal vaere > 0, fik {grid_max}")
+
     return CaseConfig(
         meta=raw["meta"],
         time=time,
@@ -1130,5 +1146,6 @@ def load_case(
         availability=availability,
         robust_reservation=robust_reservation,
         solver=solver_cfg,
+        grid_max_consumption_mw=grid_max,
         data=data_cfg,
     )

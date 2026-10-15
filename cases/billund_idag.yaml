@@ -10,11 +10,15 @@
 #     1. juli er casen uloeselig uden tank.
 #   * solver-blok med 0,1 % gab, fordi casen bruges til differenser.
 #
-# Praekvalifikationen med den nye elkedel er ikke afklaret. Standard er 17,52 MW.
-# Et stoerre loft virker kun, hvis kapacitetsprisgatens blokke skaleres med:
-#   --set balancing.ancillary_caps.total_mw=47.52 \
-#   --set balancing.reservation_gate.afrr.block_mw=7.65 \
-#   --set balancing.reservation_gate.mfrr.block_mw=12.10
+# Billund 15/10-2026: alle tre el-enheder er praekvalificeret (5,52 + 12 + 30 =
+# 47,52 MW), men nettilslutningen tillader hoejst 33 MW el i alt (grid-blokken).
+# Kapacitetsprisgatens blokke er skaleret i samme forhold som loftet
+# (2,82/4,46 -> 7,65/12,10 MW), ellers binder blokkene foer loftet.
+# Den gamle konfiguration (kun VP og den aeldre elkedel, 17,52 MW):
+#   --set balancing.ancillary_caps.total_mw=17.52 \
+#   --set balancing.reservation_gate.afrr.block_mw=2.82 \
+#   --set balancing.reservation_gate.mfrr.block_mw=4.46
+# Uden netloft: --set grid.max_consumption_mw=1000
 #
 # Faktisk marked:
 #   python run_case.py cases/billund_idag.yaml --data-source github --with-balancing \
@@ -215,7 +219,7 @@ units:
       mfrr_qualified: true
       fcr_qualified: false
     commissioned: 2026
-    notes: "Under inkøring jan–apr 2026 — ikke i drift. Reserve-loftet (14 MW) er Billunds prækvalificering og er uafhængigt af denne enheds enabled-flag."
+    notes: "I drift; prækvalificeret (Billund 15/10-2026). Samlet eloptag er begrænset til 33 MW af nettilslutningen (grid-blokken)."
 
   elkedel_gl:
     enabled: true
@@ -369,7 +373,7 @@ balancing:
   ancillary_caps:
     per_unit_mw:
       vp_luft_vand: 5.52        # John 26/8: prækvalificeret eloptag
-    total_mw: 17.52          # John 26/8: 5,52 (VP) + 12 (elkedel_gl)
+    total_mw: 47.52          # Billund 15/10: VP 5,52 + elkedel_gl 12 + elkedel_ny 30
   # Spor B — CM-gate rekalibreret på det RENE vindue marts–juni 2026.
   # gate-frekvens × block_mw = facit MW-snit (aFRR 0,743 / mFRR 0,509).
   #   aFRR: tau=75  → frekvens 26,3 % → B=2,82
@@ -377,9 +381,16 @@ balancing:
   reservation_gate:
     enabled: true
     mode: bound
-    afrr: { cm_threshold_dkk_mw_h: 75, block_mw: 2.82 }
-    mfrr: { cm_threshold_dkk_mw_h: 300, block_mw: 4.46 }
+    afrr: { cm_threshold_dkk_mw_h: 75, block_mw: 7.65 }   # 2,82 x 47,52/17,52
+    mfrr: { cm_threshold_dkk_mw_h: 300, block_mw: 12.10 }  # 4,46 x 47,52/17,52
 
+# ------------------------------------------------------------------------------
+# NETTILSLUTNING — Billund 15/10-2026: hoejst 33 MW el i alt (VP + elkedler).
+# Gaelder driften foer aktivering og, med robust reservation, planen uden
+# aktivering. Gasmotorens elproduktion modregnes ikke.
+# ------------------------------------------------------------------------------
+grid:
+  max_consumption_mw: 33.0
 
 # ------------------------------------------------------------------------------
 # INVESTERING (ikke aktiv i backtest)
