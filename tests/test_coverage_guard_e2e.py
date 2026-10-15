@@ -64,27 +64,6 @@ def test_A2_read_dataset_rejects_partial_coverage(df_data, df_data_head):
                       time_col="TimeUTC")
 
 
-def test_A2_documents_what_head_returns_instead(df_data, df_data_head):
-    """Dokumenterer HVAD dagens kode returnerer i stedet for at fejle.
-
-    Denne test består både før og efter Gate 2 er irrelevant — den kører kun
-    når vagten IKKE findes, og springes over bagefter. Den er beviset for at
-    A2's "DID NOT RAISE" skyldes en delvist dækket frame og ikke en tom.
-    """
-    from src import data_loader
-
-    if getattr(data_loader, "CoverageError", None) is not None:
-        pytest.skip("vagten findes nu — dagens tavse adfærd er væk (Gate 2)")
-
-    df = _read_dataset(df_data, "afrr", "DK1",
-                       _axis("2024-01-01 00:00", "2024-12-31 23:00"),
-                       time_col="TimeUTC")
-    assert not df.empty, "frame er ikke tom — derfor fanger df.empty-vagten den ikke"
-    assert len(df) == 2186, f"df-data {df_data_head}: forventede 2186, fik {len(df)}"
-    ts = pd.to_datetime(df["TimeUTC"])
-    assert ts.min() == pd.Timestamp("2024-10-01 22:00")
-
-
 # ---------------------------------------------------------------------------
 # B2 — manglende årsfil i et flerårsspænd, gennem _read_dataset
 # ---------------------------------------------------------------------------
