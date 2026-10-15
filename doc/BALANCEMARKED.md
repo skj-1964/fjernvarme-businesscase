@@ -98,7 +98,7 @@ aktivering er ikke kendt:
 rapporterer prognosens værdi. `realized` løser først på prognosen, låser
 reservationerne og løser driften igen på de realiserede aktiveringer; begge
 objektiver skrives ud. `balancing.robust_reservation: true` kræver desuden, at
-driften holder, hvis buddet ikke aktiveres (anbefalet; standard er `false`).
+driften holder, hvis buddet ikke aktiveres (standard fra 15. oktober 2026).
 Valget af budstrategi og profiler til eget værk:
 [`BUDSTRATEGI.md`](BUDSTRATEGI.md).
 

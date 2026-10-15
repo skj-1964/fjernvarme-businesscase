@@ -342,7 +342,7 @@ def build_model(cfg: CaseConfig, data: xr.Dataset) -> lp.Model:
     # Planen er en betingelse, ikke en omkostning: objektivet regnes stadig på
     # den forventede aktivering.
     # --------------------------------------------------------------------------
-    if bal is not None and getattr(cfg, "robust_reservation", False):
+    if bal is not None and getattr(cfg, "robust_reservation", True):
         from .balancing import _add_footroom_constraints
 
         heat_prod_0 = m.add_variables(

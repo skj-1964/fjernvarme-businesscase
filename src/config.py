@@ -778,7 +778,7 @@ class CaseConfig:
     availability: Optional["Availability"] = None
     # Robust reservation: driften skal også holde, hvis buddet IKKE aktiveres
     # (planen uden aktivering). Se model.py og doc/BUDSTRATEGI.md.
-    robust_reservation: bool = False
+    robust_reservation: bool = True
     # Solvertolerance. Se Solver-docstring: standarden er til ABSOLUTTE
     # koersler, ikke til scenariedifferenser.
     solver: "Solver" = field(default_factory=Solver)
@@ -972,7 +972,7 @@ def load_case(
         raise ValueError(
             f"ukendte noegler i balancing: {sorted(ukendte_bal)}. "
             f"Gyldige: {sorted(_KENDTE_BAL)}")
-    robust_reservation = bool((bal_raw or {}).get("robust_reservation", False))
+    robust_reservation = bool((bal_raw or {}).get("robust_reservation", True))
     balancing_method = bal_raw.get("method", "legacy")
     if balancing_method not in ("legacy", "activation_value"):
         raise ValueError(

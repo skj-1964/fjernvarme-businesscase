@@ -49,12 +49,13 @@ def test_med_robust_kan_reservationen_holdes():
     assert "Trin 1-objektiv" in ud and "\nObjektiv:" in ud
 
 
-def test_robust_er_slaaet_fra_som_standard(tmp_path):
+def test_robust_er_slaaet_til_som_standard(tmp_path):
+    # Standard skiftet til True 15/10-2026: robust er den korrekte planlægning.
     d = yaml.safe_load(open("cases/andeby.yaml", encoding="utf-8"))
     d["balancing"].pop("robust_reservation", None)
     sti = tmp_path / "uden_noegle.yaml"
     sti.write_text(yaml.safe_dump(d, allow_unicode=True), encoding="utf-8")
-    assert load_case(str(sti)).robust_reservation is False
+    assert load_case(str(sti)).robust_reservation is True
 
 
 def test_ukendt_noegle_i_balancing_afvises(tmp_path):

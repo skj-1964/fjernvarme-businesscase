@@ -223,7 +223,7 @@ units:
     min_uptime: 168           # Billund: skal mindst køre 1 uge (168 timer) ad gangen
     min_downtime: 6
     uc_enabled: true
-    initial_status: 1
+    initial_status: 0         # slukket ved start 1. juli (15/10-2026)
     ancillary: {afrr_qualified: false, mfrr_qualified: false, fcr_qualified: false}
     commissioned: 2009
 
@@ -240,7 +240,7 @@ units:
     min_uptime: 4
     min_downtime: 6
     uc_enabled: true
-    initial_status: 1
+    initial_status: 0         # slukket ved start 1. juli (15/10-2026)
     ancillary: {afrr_qualified: false, mfrr_qualified: false, fcr_qualified: false}
     commissioned: 2015
 

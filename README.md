@@ -127,22 +127,25 @@ Skifter en af de tre, skifter tallet.
 
 ## Referencetal
 
-Kørt på commit `aa4e752` med `df-data` `10be997` (8. oktober 2026). Beløb er
-modellens samlede driftsomkostning i kr. (objektiv) for vinduet i casen.
+Kørt 15. oktober 2026 med `df-data` `10be997`, efter at robust reservation
+blev standard, og de rullende Billund-cases starter flis- og halmkedlen
+slukket 1. juli. Beløb er modellens samlede driftsomkostning i kr. (objektiv)
+for vinduet i casen.
 
 | case | vindue | objektiv | kommando |
 |---|---|---:|---|
-| Spor A-anker | 2. marts–23. juni 2026 ¹ | **4.697.269** | `python run_case.py cases/billund_sporA.yaml --data-source github --with-balancing` |
+| Spor A-anker | 2. marts–23. juni 2026 ¹ | **4.698.270** | `python run_case.py cases/billund_sporA.yaml --data-source github --with-balancing` |
 | Spor B | 2. marts–30. juni 2026 | **3.964.586** | `python run_case.py cases/billund_sporB.yaml --data-source github --with-balancing --heat-csv data/billund_abvaerk_hourly_splejset_jun2026.csv` |
-| Billund rullende år | jul 2025–jun 2026 | **20.343.221** | `python run_case.py cases/billund_sporA_rullende.yaml --data-source github --with-balancing --heat-csv data/billund_abvaerk_hourly_splejset_jun2026.csv` |
-| Andeby helår, med balancering | jul 2025–jun 2026 | **23.048.152** | `python run_case.py cases/andeby.yaml --data-source github --with-balancing` |
+| Billund rullende år | jul 2025–jun 2026 | **20.402.639** | `python run_case.py cases/billund_sporA_rullende.yaml --data-source github --with-balancing --heat-csv data/billund_abvaerk_hourly_splejset_jun2026.csv` |
+| Andeby helår, med balancering | jul 2025–jun 2026 | **23.066.846** | `python run_case.py cases/andeby.yaml --data-source github --with-balancing` |
 | Andeby helår, uden balancering | jul 2025–jun 2026 | **30.430.965** | `python run_case.py cases/andeby.yaml --data-source github` |
 
 ¹ Spor A slutter 23. juni, fordi ankeret er regnet, før varmelasten for den sidste uge af juni blev splejset ind; Spor B og de rullende år går til 30. juni.
 
 Alle fem er optimale inden for casens gab. På en sandkasse med to kerner tog
-Spor A og Spor B ca. 2 minutter, Billunds rullende år 8 minutter og Andeby
-6–10 minutter (ca. 3,5 GB hukommelse). Kør ikke helårene live; regn dem på
+Spor A og Spor B ca. 2 minutter, Billunds rullende år 4 minutter, Andeby uden
+balancering 6–10 minutter og Andeby med balancering ca. 1 time (robust
+reservation fordobler driftsdelen; ca. 3,5 GB hukommelse). Kør ikke helårene live; regn dem på
 forhånd. Andeby fik 8. oktober 2026 en solprofil fra målt DMI-globalstråling,
 så Andeby-tal fra før den dato kan ikke sammenlignes.
 
