@@ -19,6 +19,36 @@ ikke længere.
 
 ---
 
+## Til Claude: sådan forstås driftsfagligt sprog
+
+Brugerne er driftsfolk på fjernvarmeværker, ikke programmører. De skriver på
+almindeligt dansk, som til en kollega. Oversæt deres ord til kommandoerne
+nedenfor, og spørg kun tilbage, hvis noget ikke kan afgøres herfra.
+
+| Når brugeren siger … | … betyder det |
+|---|---|
+| "hent modellen", "klon repoet" | Klon dette repo og kør `pip install -r requirements.txt`. Skriv altid `--data-source github` ved kørsler. |
+| "Andeby" | Kursets fiktive værk: `cases/andeby.yaml`. |
+| "vintervinduet" | `--start 2026-01-05 --end 2026-01-16` (12 døgn; `--end` er inklusiv) |
+| "sommervinduet" | `--start 2026-06-08 --end 2026-06-19` (12 døgn) |
+| "mit værks zip-fil", "min zip" | Pak zip'en ud i roden af repoet, så mappen `deltagere/` ligger der. Læs `deltagere/LAESMIG_<værk>.md`, og kør kommandoen derfra. **Konvertér ikke regnearket** med `scripts/vaerksark_til_yaml.py`: casen i zip'en er rettet efter værkets egne svar, og en ny konvertering giver andre tal. |
+| "min opsætning", "min YAML", "mit værk" | Casen i `deltagere/cases/` fra zip'en |
+| "helåret", "hele året" | Det forhåndsberegnede helår i `deltagere/forhaandsberegnet/<værk>/`. Kør ikke et helt år live: det tager 7–15 minutter. |
+| "slå tanken fra", "uden varmepumpe" | Kør samme vindue igen med `--disable <navn>` (Andebys tanke: `--disable tank_lav --disable tank_hoej`). Vis forskellen til kørslen med enheden. |
+| "jeg tror ikke på [antagelse]", "den skal være [værdi]" | Ret værdien i en kopi af casen, kør samme vindue igen, og vis, hvad det flytter. |
+| "min indmelding ligner profil [N]", "balancemarkedet" | Læs [`doc/BUDSTRATEGI.md`](doc/BUDSTRATEGI.md). Sæt den fælles `balancing`-blok og profil N ind i en kopi af casen med casens egne enhedsnavne, og sæt `afrr_qualified`/`mfrr_qualified` på de enheder, der byder. Mangler casen den godkendte (prækvalificerede) effekt pr. enhed, så spørg efter den. Kør samme vindue uden og med `--with-balancing`. Vis balancens værdi (forskellen) og det, prognosen lovede (trin 1) over for det, den gav. |
+| "kør ikke modellen endnu" | Læs og forklar kun. Start ingen kørsler. |
+
+Sådan svarer du:
+
+- Svar på dansk, og brug driftsfolkenes ord: enheder, varme, tank, kroner og MWh.
+- Vis tal som en tabel med kroner og MWh pr. enhed, og nævn altid perioden.
+  Et resultat for 12 døgn er ikke et årstal.
+- Er LAESMIG-filen i tvivl om en antagelse, så sig det, når du viser resultatet.
+- Ser et tal mærkeligt ud, så sig det, og forklar hvorfor. Skjul det ikke.
+
+---
+
 ## Hvad modellen kan, og hvad den ikke kan
 
 | Kan | Kan ikke (endnu) |
@@ -86,7 +116,12 @@ aktiveringsindtægt med `--with-balancing`.
 
 ## Dit eget værk — fra regneark til model
 
-Udfyld [`doc/vaerksdata_skabelon.xlsx`](doc/vaerksdata_skabelon.xlsx)
+**Har du fået en zip-fil med dit værk (fx på kurset), så brug den, ikke
+regnearket.** Pak den ud i roden af repoet, og følg `deltagere/LAESMIG_<værk>.md`.
+Zip'en har casen, timedata, det forhåndsberegnede helår og noter om de
+antagelser, der er gjort. Konvertér ikke arket igen: det giver en anden case.
+
+Uden zip-fil: udfyld [`doc/vaerksdata_skabelon.xlsx`](doc/vaerksdata_skabelon.xlsx)
 (timedata, anlæg, varmepumpe, priser), læg det i den git-ignorerede mappe
 `deltagere/`, og konvertér:
 

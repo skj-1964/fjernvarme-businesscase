@@ -96,14 +96,18 @@ Med `robust_reservation: true` skal driften også holde, hvis buddet *ikke* akti
 | `robust_reservation: true` (standard) | Driften holder med og uden aktivering. Anbefalet |
 | `robust_reservation: false` | Driften holder kun med den forventede aktivering. Kun til sammenligning. Kan give "Modellen kan ikke løses" med `settle: realized` uden tank om sommeren |
 
-### 3.5 Aktiveringen
+### 3.5 Aktiveringsbuddet: jeres eget valg
 
-To yderligere valg bestemmer aktiveringsindtægten:
+Et accepteret kapacitetsbud forpligter værket til også at give et **aktiveringsbud**: den pris pr. MWh, værket vil have for at stoppe sit elforbrug, når Energinet kalder. Aktiveringsbuddet er en del af budstrategien, og værket fastsætter det selv. Modellen sætter det som spotprisen plus et tillæg.
 
 | Valg | Valgmuligheder | YAML |
 |---|---|---|
-| **Aktiveringsbud** | Buddet på energi sættes som spotpris plus et tillæg, fx spot + 500 kr./MWh. Jo højere tillæg, jo sjældnere aktivering, men til en højere pris | `bid_strategy.up_markup_dkk_mwh` |
-| **Hvor meget aktiveres** | `clear`: hele buddet aktiveres, når prisen er over buddet. `system_share`: kun en andel, der følger hvor meget af markedet der faktisk bliver kaldt (skaleret med k). `ramp`: andelen vokser, jo længere prisen ligger over buddet | `activation.afrr.model` / `activation.mfrr.model` |
+| **Aktiveringsbud** | Spotprisen plus et tillæg, som værket selv vælger. Modellen bruger 500 kr./MWh i alle cases, men det er en antagelse, ikke en regel. Højt tillæg: sjældnere kaldt, til en højere pris. Lavt tillæg: oftere kaldt, til en lavere pris | `bid_strategy.up_markup_dkk_mwh` |
+| **Hvor meget aktiveres** | `clear`: hele buddet aktiveres, når prisen er over buddet. `system_share`: kun en andel, der følger, hvor meget af markedet der faktisk bliver kaldt (skaleret med k). `ramp`: andelen vokser, jo længere prisen ligger over buddet | `activation.afrr.model` / `activation.mfrr.model` |
+
+**Hvor lavt må tillægget være?** Når værket stopper elkedlen eller varmepumpen, mangler varmen og skal laves på anden vis. Aktiveringen skal betale mere, end den varme koster. Det betyder mest for varmepumpen, der mister tre MWh varme for hver MWh el, den stopper, og i timer med lav spotpris, hvor spotprisen plus tillægget er lavt.
+
+**Prøv jeres eget tillæg.** Sig til Claude: "vi byder energien til spotprisen plus 300 kr.", og bed om samme kørsel med jeres tillæg og med 500. Forskellen viser, hvad valget betyder. Kommandoen er `--set balancing.bid_strategy.up_markup_dkk_mwh=300`.
 
 `clear` overvurderer aktiveret energi markant, når der ikke er et loft på mængden. For aFRR anbefales `system_share`. For mFRR, som afregnes til marginalpris, er `clear` et rimeligt udgangspunkt.
 
@@ -127,6 +131,81 @@ For alle profiler 1–4 anbefales:
 - `foresight: trailing30` (eller `lag24`), så modellen ikke kender aktiveringerne på forhånd
 - `settle: realized`, så tallet er det, værket faktisk ville have fået
 - aFRR `system_share` med k = 4 og mFRR `clear` (Andeby-kalibreringen, marts–juni 2026)
+
+Aktiveringsbuddet (spotprisen plus tillæg, afsnit 3.5) er det samme i alle profiler. **Profilerne adskiller sig kun på kapacitetsbuddet.**
+
+### 4.1 Sådan foregår en indmelding
+
+Værket giver to bud med hver sin pris:
+
+|  | Kapacitetsbud | Aktiveringsbud |
+|---|---|---|
+| **Pris for** | At stå klar | Den energi, der faktisk bliver kaldt |
+| **Enhed** | kr. pr. MW pr. time | kr. pr. MWh |
+| **Hvornår** | Dagen før, i en auktion | I driftsdøgnet, for den mængde, der er accepteret som kapacitet |
+| **Betaling** | Når auktionens pris er mindst buddet. Værket får auktionens pris, ikke sit eget bud | I de kvarterer, hvor prisen for opregulering er mindst buddet |
+| **I modellen** | Det, profilerne 1–5 handler om | Spotprisen plus tillæg, det samme i alle profiler |
+
+**Frivillige bud.** Værket kan også give aktiveringsbud uden at have vundet kapacitet: tæt på driftstimen og for den effekt, det alligevel kører med. Der er ingen betaling for at stå klar og ingen pligt til at køre. Modellen regner ikke på frivillige bud endnu. Den kan kun blive aktiveret gennem en reservation.
+
+### 4.2 Én time, ét bud
+
+Eksemplet bruger runde tal og ikke data fra Andeby eller Billund. Spotprisen i timen er 800 kr./MWh, tarif og elafgift er 150 kr./MWh, og alternativet til elvarmen er halm til 250 kr./MWh varme. Elkedlen giver 1 MWh varme pr. MWh el.
+
+**Kapacitet.** Dagen før byder værket 3 MW aFRR til 100 kr./MW/h for timen 18–19. Auktionens pris bliver 240 kr./MW/h. Buddet er accepteret, og værket får 3 × 240 = **720 kr.** for timen, uanset om det bliver kaldt. Var prisen blevet 80 kr., var buddet afvist: 0 kr. og ingen forpligtelse.
+
+**Forpligtelsen.** Elkedlen skal køre mindst 3 MW hele timen, og værket giver et aktiveringsbud på de 3 MW: spotprisen 800 + tillæg 500 = **1.300 kr./MWh**.
+
+**Aktivering.** Prisen for opregulering i timens fire kvarterer:
+
+| Kvarter | Pris for opregulering | Over buddet på 1.300? |
+|---|---|---|
+| 1 | 900 kr./MWh | Nej |
+| 2 | 1.100 kr./MWh | Nej |
+| 3 | 2.500 kr./MWh | Ja |
+| 4 | 1.600 kr./MWh | Ja |
+
+Hvor meget bliver kaldt? Kaldes hele buddet (`clear`), er det 3 MW i to kvarterer. Kaldes kun en andel (`system_share`, det realistiske for aFRR), følger andelen systemet: kaldte Energinet 10 % og 5 % af den indkøbte kapacitet, bliver det med k = 4 til 40 % og 20 % af de 3 MW.
+
+| Timen 18–19 | Hele buddet kaldes | En andel kaldes |
+|---|---|---|
+| Kapacitetsbetaling | 720 kr. | 720 kr. |
+| Kaldt energi | 1,5 MWh | 0,45 MWh |
+| Aktiveringsbetaling | 0,75 × 2.500 + 0,75 × 1.600 = 3.075 kr. | 0,30 × 2.500 + 0,15 × 1.600 = 990 kr. |
+| Sparet tarif og elafgift | 225 kr. | 68 kr. |
+| Varme, der skal laves på anden vis | 1,5 MWh | 0,45 MWh |
+
+Kapacitetsbetalingen er sikker, når buddet er accepteret. Aktiveringsbetalingen afhænger af, hvor meget der bliver kaldt, og den kendes først bagefter.
+
+### 4.3 Hvad koster det at stå klar? (budprisen i profil 4)
+
+For at kunne stoppe 1 MW skal værket bruge 1 MW el hele timen, også når det ikke kan betale sig. Prisen for at stå klar er elprisen med tarif og afgift minus det, varmen sparer på det billigste alternativ. Profil 4 byder kun, når kapacitetsprisen er højere.
+
+| Enhed og alternativ | El pr. MW i timen | Varmen sparer | At stå klar koster | Byder ved 240 kr.? |
+|---|---|---|---|---|
+| Elkedel, halm til 250 | 950 kr. | 250 kr. | 700 kr./MW/h | Nej |
+| Varmepumpe (COP 3), halm til 250 | 950 kr. | 750 kr. | 200 kr./MW/h | Ja |
+| Varmepumpe (COP 3), gas til 600 | 950 kr. | 1.800 kr. | under 0, gulvet 50 kr./MW/h | Ja |
+
+Derfor byder varmepumpen oftere end elkedlen, og oftest om vinteren, når gaskedlen er alternativet. Modellen finder alternativet som den ikke-elektriske enhed, der er på marginalen ved den aktuelle varmelast. Den bruger den faktiske spotpris, mens værket kun kender en prognose, når det byder.
+
+### 4.4 Sådan regner modellen hver profil
+
+| Profil | Hvornår reserveres der? | Hvor meget? |
+|---|---|---|
+| 0 | Aldrig. Kørsel uden balancemarkedet | – |
+| 1 | Når kapacitetsprisen er mindst den lave faste budpris | Præcis blokken. Modellen skal køre enheden |
+| 2 | Når kapacitetsprisen er mindst den faste budpris | Fra 0 op til blokken. Modellen vælger mængden ud fra driften |
+| 3 | Som profil 2 | Op til hele den godkendte effekt |
+| 4 | Når kapacitetsprisen er mindst prisen for at stå klar (4.3), time for time | Op til blokken |
+| 5 | Altid, når det betaler sig | Alt. Modellen kender aktiveringerne |
+
+Profil 1–4 regnes i to trin:
+
+- **Trin 1, det prognosen lovede.** Reservationen besluttes på en prognose for aktiveringen: gennemsnittet af samme time de seneste 30 døgn.
+- **Trin 2, det den gav.** Reservationen låses, og driften regnes igen på det, der faktisk blev kaldt.
+Driften skal altid kunne holde, også hvis buddet ikke bliver kaldt. Modellen er stadig optimistisk på to punkter: den kender spotprisen, og i profil 2–4 vælger den mængden, efter at kapacitetsprisen er kendt. Et værk må vælge mængden, før prisen kendes.
+
 
 ---
 
@@ -281,3 +360,5 @@ Bed Claude om at læse denne fil, sætte den fælles blok og en profil ind i din
 - Risikoen for, at et accepteret bud ikke kan leveres (havari, afrimning af varmepumpe, netbegrænsninger). Brug budvindue eller månedsloft til at beskrive det
 - Prisvirkning af værkets egne bud. Modellen antager, at værket ikke flytter prisen
 - Kapacitetsprisen kendes stadig på forhånd i modellen, og spotprisen kendes, når timerne vælges
+- Frivillige aktiveringsbud uden kapacitet. Modellen bliver kun aktiveret gennem en reservation
+- Værdien af en kaldt MWh regnes i modellen som aktiveringsprisen plus den sparede spotpris, tarif og elafgift. Om den sparede spotpris svarer til afregningen, undersøges. Eksemplet i 4.2 viser derfor kun betalingen og den sparede tarif og afgift
