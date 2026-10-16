@@ -37,6 +37,7 @@ nedenfor, og spørg kun tilbage, hvis noget ikke kan afgøres herfra.
 | "slå tanken fra", "uden varmepumpe" | Kør samme vindue igen med `--disable <navn>` (Andebys tanke: `--disable tank_lav --disable tank_hoej`). Vis forskellen til kørslen med enheden. |
 | "jeg tror ikke på [antagelse]", "den skal være [værdi]" | Ret værdien i en kopi af casen, kør samme vindue igen, og vis, hvad det flytter. |
 | "min indmelding ligner profil [N]", "balancemarkedet" | Læs [`doc/BUDSTRATEGI.md`](doc/BUDSTRATEGI.md). Sæt den fælles `balancing`-blok og profil N ind i en kopi af casen med casens egne enhedsnavne, og sæt `afrr_qualified`/`mfrr_qualified` på de enheder, der byder. Mangler casen den godkendte (prækvalificerede) effekt pr. enhed, så spørg efter den. Kør samme vindue uden og med `--with-balancing`. Vis balancens værdi (forskellen) og det, prognosen lovede (trin 1) over for det, den gav. |
+| "vi byder energien til spotprisen plus [X] kr", "vores aktiveringsbud" | Tillægget på aktiveringsbuddet: `balancing.bid_strategy.up_markup_dkk_mwh = X` (eller `--set balancing.bid_strategy.up_markup_dkk_mwh=X`). Det er værkets eget valg; 500 er kun modellens standard. Siger brugeren intet, så brug casens værdi, og nævn den i svaret. |
 | "kør ikke modellen endnu" | Læs og forklar kun. Start ingen kørsler. |
 
 Sådan svarer du:
