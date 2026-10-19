@@ -3,11 +3,12 @@
 Med robust reservation og uden tank returnerede HiGHS (1.14 og 1.15) med
 presolve-reglen 'aggregator' en løsning, der var 12 % for dyr, rapporteret som
 optimal. Med presolve slået helt fra, eller kun aggregator (bit 12, 4096), er
-optimum 1.311.520 kr. solve.py slår derfor aggregator fra, når modellen har
+optimum 1.647.142 kr. (1.311.520 før rettelserne 19/10-2026: lagerbalancen i første
+time og aktiveringsværdien uden spotpris). solve.py slår derfor aggregator fra, når modellen har
 planen uden aktivering, medmindre casen selv sætter solver.presolve_rule_off.
 
 Testen kører vinduet, hvor fejlen blev fundet. Den er set fejle med
-presolve_rule_off = 0 (gav 1.465.539).
+presolve_rule_off = 0 (gav 1.465.539 før og 1.801.161 efter rettelserne 19/10).
 """
 import re
 import subprocess
@@ -24,7 +25,7 @@ KMD = [
     "--set", "grid.max_consumption_mw=1000",
     "--start", "2026-01-05", "--end", "2026-01-16", "--mip-gap", "0",
 ]
-RIGTIGT = 1_311_520
+RIGTIGT = 1_647_142
 
 
 def test_standard_er_automatisk():
