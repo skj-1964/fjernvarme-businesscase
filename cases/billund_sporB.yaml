@@ -370,9 +370,13 @@ balancing:
   #   scripts/capture_rate.py <dispatch.nc> --case cases/billund_sporB.yaml \
   #       --facit <facit marts-juni> --start 2026-03-02 --end 2026-06-30 --ex-post
   #
+  #   Efter rettelserne 19/10 (tankens første time, aktivering uden spot):
+  #                           aFRR 109 %, mFRR 129 %, i alt 120 %
+  #                           (model 3,80 mio / facit 3,18 mio; objektiv
+  #                           4.204.128, gap 0,15 %)
   #   VP-tabel (sept. 2026):  aFRR 108 %, mFRR 132 %, i alt 121 %
   #                           (model 3,85 mio / facit 3,18 mio; objektiv
-  #                           3.964.586, gap 0,15 %)
+  #                           3.964.586, før rettelserne 19/10)
   #   Gammel lineær VP:       aFRR 102 %, mFRR 130 %, i alt 117 %
   #                           (objektiv 4.485.617, gap 0,34 %; STATUS_session29)
   #

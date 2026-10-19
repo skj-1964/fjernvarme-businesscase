@@ -44,7 +44,7 @@ Vi tager imod alt der gør modellen mere brugbar for danske fjernvarme­selskabe
    (ca. 2 minutter):
    ```bash
    python run_case.py cases/billund_sporA.yaml --data-source github --with-balancing
-   # Objektiv: 4,700,473 DKK
+   # Objektiv: 5,069,729 DKK   (d813e6b, 19. oktober 2026)
    ```
    Ændrer I noget, der flytter tallene med vilje, så skriv det gamle og det
    nye tal i PR'en, og ret referencetallene i README.
