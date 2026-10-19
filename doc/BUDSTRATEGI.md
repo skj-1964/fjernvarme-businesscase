@@ -325,14 +325,14 @@ python run_case.py $W --with-balancing \
     --set balancing.reservation_gate.enabled=true        # (4) beregnet budpris, prognose
 ```
 
-Kontroltal (19. oktober 2026, robust reservation som standard, lagerbalancen rettet i første time):
+Kontroltal (19. oktober 2026, robust reservation som standard, lagerbalancen rettet i første time, aktiveringsværdien uden spotpris):
 
 | Kørsel | Prognosen lovede | Afregnet på det realiserede | Balancens værdi |
 |---|---:|---:|---:|
 | (1) Uden balance | – | 3.446.712 kr. | – |
-| (2) Byd frit, kender aktiveringerne | – | 2.890.226 kr. | 556.000 kr. |
-| (3) Byd frit, prognose | 2.741.631 kr. | 3.184.696 kr. | 262.000 kr. |
-| (4) Beregnet budpris, prognose | 3.268.941 kr. | 3.289.999 kr. | 157.000 kr. |
+| (2) Byd frit, kender aktiveringerne | – | 3.025.301 kr. | 421.000 kr. |
+| (3) Byd frit, prognose | 2.932.972 kr. | 3.231.194 kr. | 216.000 kr. |
+| (4) Beregnet budpris, prognose | 3.303.953 kr. | 3.319.185 kr. | 128.000 kr. |
 
 (2) er et loft, ingen kan nå. (3) lover mest, men skuffer mest: modellen kører elkedlen for at fange aktiveringer, der ikke kommer. (4) lover mindre, men holder.
 
@@ -366,4 +366,3 @@ Bed Claude om at læse denne fil, sætte den fælles blok og en profil ind i din
 - Kapacitetsprisen kendes stadig på forhånd i modellen, og spotprisen kendes, når timerne vælges
 - Frivillige aktiveringsbud uden kapacitet. Modellen bliver kun aktiveret gennem en reservation
 - Aktiveringsbud som fast pris pr. enhed. Modellen bruger spotprisen plus ét tillæg for alle enheder
-- Værdien af en kaldt MWh regnes i modellen som aktiveringsprisen plus den sparede spotpris, tarif og elafgift. Om den sparede spotpris svarer til afregningen, undersøges. Eksemplet i 4.2 viser derfor kun betalingen og den sparede tarif og afgift
