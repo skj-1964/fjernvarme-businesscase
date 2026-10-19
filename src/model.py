@@ -265,7 +265,8 @@ def build_model(cfg: CaseConfig, data: xr.Dataset) -> lp.Model:
             coords={"storage": storage_names}, dims="storage",
         )
         m.add_constraints(
-            storage_energy.sel(time=time_coord[0]) == e_init,
+            storage_energy.sel(time=time_coord[0]) - (1 - delta) * e_init
+            - charge.sel(time=time_coord[0]) + discharge.sel(time=time_coord[0]) == 0,
             name="storage_initial",
         )
 
@@ -375,7 +376,8 @@ def build_model(cfg: CaseConfig, data: xr.Dataset) -> lp.Model:
             dyn0 = e0 - (1 - delta) * e0.shift(time=1) - ch0 + dis0
             m.add_constraints(dyn0.sel(time=time_coord[1:]) == 0,
                               name="storage_dynamics_noact")
-            m.add_constraints(e0.sel(time=time_coord[0]) == e_init,
+            m.add_constraints(e0.sel(time=time_coord[0]) - (1 - delta) * e_init
+                              - ch0.sel(time=time_coord[0]) + dis0.sel(time=time_coord[0]) == 0,
                               name="storage_initial_noact")
             for s_name in storage_names:
                 s = cfg.storage[s_name]
