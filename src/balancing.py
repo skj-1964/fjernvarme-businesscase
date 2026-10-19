@@ -1179,12 +1179,12 @@ def print_reserve_summary(summary: dict):
                 f"gns bid = {stats['mean_bid_mw']:.2f} MW, "
                 f"max = {stats['max_bid_mw']:.2f} MW, "
                 f"timer m. bid = {stats['hours_bidding']}, "
-                f"MW-h år = {stats['mwh_bid_year']:.0f}"
+                f"MW-h i perioden = {stats['mwh_bid_year']:.0f}"
             )
             if "capacity_revenue_dkk" in stats:
                 rev = stats["capacity_revenue_dkk"]
                 total_cap += rev
-                print(f"    kapacitetsindtægt: {rev/1e6:.3f} mio DKK/år")
+                print(f"    kapacitetsindtægt: {rev/1e6:.3f} mio DKK i perioden")
             if "expected_activated_mwh" in stats:
                 mwh = stats["expected_activated_mwh"]
                 # Ny metode: vis netto-betaling + forbrugsmodregning (= brutto).
@@ -1194,35 +1194,35 @@ def print_reserve_summary(summary: dict):
                     total_net += net
                     total_off += off
                     print(
-                        f"    forv. aktiveret el: {mwh:,.0f} MWh/år | "
+                        f"    forv. aktiveret el: {mwh:,.0f} MWh i perioden | "
                         f"netto akt-betaling: {net/1e6:.3f} + forbrugsmodregn: "
-                        f"{off/1e6:.3f} = brutto {(net+off)/1e6:.3f} mio DKK/år"
+                        f"{off/1e6:.3f} = brutto {(net+off)/1e6:.3f} mio DKK i perioden"
                     )
                 else:
                     rev = stats.get("activation_price_revenue_dkk", 0.0)
                     total_net += rev
                     print(
-                        f"    forv. aktiveret el: {mwh:,.0f} MWh/år, "
-                        f"aktiveringsprisindtægt: {rev/1e6:.3f} mio DKK/år"
+                        f"    forv. aktiveret el: {mwh:,.0f} MWh i perioden, "
+                        f"aktiveringsprisindtægt: {rev/1e6:.3f} mio DKK i perioden"
                     )
         if total_cap > 0 or total_net > 0 or total_off > 0:
-            print(f"  {market_label} TOTAL kapacitet:           {total_cap/1e6:.3f} mio DKK/år")
-            print(f"  {market_label} TOTAL netto akt-betaling:  {total_net/1e6:.3f} mio DKK/år")
-            print(f"  {market_label} TOTAL forbrugsmodregning:  {total_off/1e6:.3f} mio DKK/år")
-            print(f"  {market_label} TOTAL brutto (akt):        {(total_net+total_off)/1e6:.3f} mio DKK/år")
-            print(f"  {market_label} NETTO balanceindtægt (kap+netto): {(total_cap+total_net)/1e6:.3f} mio DKK/år")
+            print(f"  {market_label} TOTAL kapacitet:           {total_cap/1e6:.3f} mio DKK i perioden")
+            print(f"  {market_label} TOTAL netto akt-betaling:  {total_net/1e6:.3f} mio DKK i perioden")
+            print(f"  {market_label} TOTAL forbrugsmodregning:  {total_off/1e6:.3f} mio DKK i perioden")
+            print(f"  {market_label} TOTAL brutto (akt):        {(total_net+total_off)/1e6:.3f} mio DKK i perioden")
+            print(f"  {market_label} NETTO balanceindtægt (kap+netto): {(total_cap+total_net)/1e6:.3f} mio DKK i perioden")
         grand_total_cap += total_cap
         grand_total_net += total_net
         grand_total_off += total_off
 
     if len(summary) > 1:
         print()
-        print(f"  SAMLET kapacitet (aFRR + mFRR):             {grand_total_cap/1e6:.3f} mio DKK/år")
-        print(f"  SAMLET netto akt-betaling (aFRR + mFRR):    {grand_total_net/1e6:.3f} mio DKK/år")
-        print(f"  SAMLET forbrugsmodregning (aFRR + mFRR):    {grand_total_off/1e6:.3f} mio DKK/år")
-        print(f"  SAMLET brutto aktivering (aFRR + mFRR):     {(grand_total_net+grand_total_off)/1e6:.3f} mio DKK/år")
-        print(f"  SAMLET NETTO balanceindtægt (kap+netto):    {(grand_total_cap+grand_total_net)/1e6:.3f} mio DKK/år")
-        print(f"  SAMLET BRUTTO balanceindtægt (kap+brutto):  {(grand_total_cap+grand_total_net+grand_total_off)/1e6:.3f} mio DKK/år")
+        print(f"  SAMLET kapacitet (aFRR + mFRR):             {grand_total_cap/1e6:.3f} mio DKK i perioden")
+        print(f"  SAMLET netto akt-betaling (aFRR + mFRR):    {grand_total_net/1e6:.3f} mio DKK i perioden")
+        print(f"  SAMLET forbrugsmodregning (aFRR + mFRR):    {grand_total_off/1e6:.3f} mio DKK i perioden")
+        print(f"  SAMLET brutto aktivering (aFRR + mFRR):     {(grand_total_net+grand_total_off)/1e6:.3f} mio DKK i perioden")
+        print(f"  SAMLET NETTO balanceindtægt (kap+netto):    {(grand_total_cap+grand_total_net)/1e6:.3f} mio DKK i perioden")
+        print(f"  SAMLET BRUTTO balanceindtægt (kap+brutto):  {(grand_total_cap+grand_total_net+grand_total_off)/1e6:.3f} mio DKK i perioden")
         print(
             f"  (Brutto akt = netto akt-betaling + forbrugsmodregning. "
             f"Objektivet bruger brutto; manifestet rapporterer netto.)"

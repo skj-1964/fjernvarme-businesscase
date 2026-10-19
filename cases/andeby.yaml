@@ -11,7 +11,7 @@
 # Periode, DMI-station og priszone står i filen; der skal ingen flag til.
 # Hele året tager 7–15 minutter. Til en hurtig prøve:
 #   python run_case.py cases/andeby.yaml --data-source github \
-#       --start 2026-01-05 --end 2026-01-18
+#       --start 2026-01-05 --end 2026-01-16
 #
 # ------------------------------------------------------------------------------
 # DET, DU SKAL ÆNDRE — i denne rækkefølge
@@ -181,7 +181,7 @@ prices:
     unit: "DKK/MWh_fuel"
   co2_eua:
     value: 600.0           # [BEKRÆFT] ~80 EUR/t × 7,45
-    unit: "DKK/MWh_gas"
+    unit: "DKK/t"
 
 # ------------------------------------------------------------------------------
 # ELMARKED OG TARIFFER  [BEKRÆFT — arvet fra billund_2025]

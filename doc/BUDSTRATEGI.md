@@ -107,6 +107,8 @@ Et accepteret kapacitetsbud forpligter værket til også at give et **aktivering
 
 **Hvor lavt må tillægget være?** Når værket stopper elkedlen eller varmepumpen, mangler varmen og skal laves på anden vis. Aktiveringen skal betale mere, end den varme koster. Det betyder mest for varmepumpen, der mister tre MWh varme for hver MWh el, den stopper, og i timer med lav spotpris, hvor spotprisen plus tillægget er lavt.
 
+**Fast pris pr. enhed.** I praksis kan et værk også sætte aktiveringsbuddet som en fast pris for hver enhed, der svarer til, hvad varmen koster fra alternativet, fx biomassen. Kan alternativet ikke følge med, hæves prisen til gaskedlens marginalpris. Varmepumpen får en højere pris end elkedlen, fordi den mister mere varme for hver MWh el, den stopper. Modellen kan ikke det endnu. Den bruger spotprisen plus ét tillæg for alle enheder.
+
 **Prøv jeres eget tillæg.** Sig til Claude: "vi byder energien til spotprisen plus 300 kr.", og bed om samme kørsel med jeres tillæg og med 500. Forskellen viser, hvad valget betyder. Kommandoen er `--set balancing.bid_strategy.up_markup_dkk_mwh=300`.
 
 `clear` overvurderer aktiveret energi markant, når der ikke er et loft på mængden. For aFRR anbefales `system_share`. For mFRR, som afregnes til marginalpris, er `clear` et rimeligt udgangspunkt.
@@ -121,7 +123,7 @@ Profilerne er bygget, så de ligner måder, værker faktisk byder på. Find den,
 |---|---|---|---|---|---|
 | **0** | **Vi byder ikke** | ikke er prækvalificeret | – | – | Referencen. Alle balancetal er en differens til denne |
 | **1** | **Fast melding** | melder samme mængde ind hver dag uden at se på prisen | Lav, fast (fx 50 kr./MW/h) | Fast blok, altid (`driven`) | Konservativt skøn for en simpel praksis |
-| **2** | **Fast pris, fast mængde** | byder en fast mængde til en fast pris og lader auktionen afgøre | Fast pr. marked | Op til fast blok (`bound`) | Det mest almindelige udgangspunkt |
+| **2** | **Fast pris, fast mængde** | byder en fast mængde til en fast pris og lader auktionen afgøre | Fast pr. marked | Op til fast blok (`bound`) | Almindeligt udgangspunkt, når varmepumpen kan byde |
 | **3** | **Fast pris, alt vi kan** | byder hele den prækvalificerede effekt til en fast pris | Fast pr. marked | Alt hvad fysikken tillader | Viser hvad værket kan, hvis det byder fuldt |
 | **4** | **Beregnet pris** | regner sin budpris ud fra driften og brændslerne hver dag | Alternativomkostning | Op til fast blok eller alt | Et tal, der holder: værket byder kun, når det betaler sig |
 | **5** | **Teoretisk loft** | – | Ingen | Alt hvad fysikken tillader | Kun som øvre grænse. Aldrig som forventning |
@@ -134,6 +136,8 @@ For alle profiler 1–4 anbefales:
 
 Aktiveringsbuddet (spotprisen plus tillæg, afsnit 3.5) er det samme i alle profiler. **Profilerne adskiller sig kun på kapacitetsbuddet.**
 
+**Kan kun elkedlen byde?** Har værket biomasse som alternativ, og er elkedlen den eneste enhed, der kan byde, så start med profil 4. At stå klar med elkedlen koster typisk mere, end kapacitetsprisen betaler (afsnit 4.3), og profil 2 kan derfor give et tab, selvom prognosen lover en gevinst. Det skete for et flisværk i generalprøven til kurset.
+
 ### 4.1 Sådan foregår en indmelding
 
 Værket giver to bud med hver sin pris:
@@ -142,11 +146,11 @@ Værket giver to bud med hver sin pris:
 |---|---|---|
 | **Pris for** | At stå klar | Den energi, der faktisk bliver kaldt |
 | **Enhed** | kr. pr. MW pr. time | kr. pr. MWh |
-| **Hvornår** | Dagen før, i en auktion | I driftsdøgnet, for den mængde, der er accepteret som kapacitet |
+| **Hvornår** | Dagen før, i en auktion | I driftsdøgnet: senest 45 minutter før kvarteret i mFRR og 25 minutter før i aFRR |
 | **Betaling** | Når auktionens pris er mindst buddet. Værket får auktionens pris, ikke sit eget bud | I de kvarterer, hvor prisen for opregulering er mindst buddet |
 | **I modellen** | Det, profilerne 1–5 handler om | Spotprisen plus tillæg, det samme i alle profiler |
 
-**Frivillige bud.** Værket kan også give aktiveringsbud uden at have vundet kapacitet: tæt på driftstimen og for den effekt, det alligevel kører med. Der er ingen betaling for at stå klar og ingen pligt til at køre. Modellen regner ikke på frivillige bud endnu. Den kan kun blive aktiveret gennem en reservation.
+**Frivillige bud.** Værket kan også give aktiveringsbud uden at have vundet kapacitet, med samme frister (45 minutter før kvarteret i mFRR, 25 i aFRR) og for den effekt, det alligevel kører med. Der er ingen betaling for at stå klar og ingen pligt til at køre. Modellen regner ikke på frivillige bud endnu. Den kan kun blive aktiveret gennem en reservation.
 
 ### 4.2 Én time, ét bud
 
@@ -321,14 +325,14 @@ python run_case.py $W --with-balancing \
     --set balancing.reservation_gate.enabled=true        # (4) beregnet budpris, prognose
 ```
 
-Kontroltal (15. oktober 2026, robust reservation som standard):
+Kontroltal (19. oktober 2026, robust reservation som standard, lagerbalancen rettet i første time):
 
 | Kørsel | Prognosen lovede | Afregnet på det realiserede | Balancens værdi |
 |---|---:|---:|---:|
-| (1) Uden balance | – | 3.424.408 kr. | – |
-| (2) Byd frit, kender aktiveringerne | – | 2.869.989 kr. | 554.000 kr. |
-| (3) Byd frit, prognose | 2.720.352 kr. | 3.163.413 kr. | 261.000 kr. |
-| (4) Beregnet budpris, prognose | 3.247.444 kr. | 3.268.332 kr. | 156.000 kr. |
+| (1) Uden balance | – | 3.446.712 kr. | – |
+| (2) Byd frit, kender aktiveringerne | – | 2.890.226 kr. | 556.000 kr. |
+| (3) Byd frit, prognose | 2.741.631 kr. | 3.184.696 kr. | 262.000 kr. |
+| (4) Beregnet budpris, prognose | 3.268.941 kr. | 3.289.999 kr. | 157.000 kr. |
 
 (2) er et loft, ingen kan nå. (3) lover mest, men skuffer mest: modellen kører elkedlen for at fange aktiveringer, der ikke kommer. (4) lover mindre, men holder.
 
@@ -361,4 +365,5 @@ Bed Claude om at læse denne fil, sætte den fælles blok og en profil ind i din
 - Prisvirkning af værkets egne bud. Modellen antager, at værket ikke flytter prisen
 - Kapacitetsprisen kendes stadig på forhånd i modellen, og spotprisen kendes, når timerne vælges
 - Frivillige aktiveringsbud uden kapacitet. Modellen bliver kun aktiveret gennem en reservation
+- Aktiveringsbud som fast pris pr. enhed. Modellen bruger spotprisen plus ét tillæg for alle enheder
 - Værdien af en kaldt MWh regnes i modellen som aktiveringsprisen plus den sparede spotpris, tarif og elafgift. Om den sparede spotpris svarer til afregningen, undersøges. Eksemplet i 4.2 viser derfor kun betalingen og den sparede tarif og afgift

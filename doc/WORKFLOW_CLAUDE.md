@@ -7,7 +7,7 @@ samtale med Claude.
 
 Forudsætningen er en **Claude Pro- eller Max-konto**. Gratiskontoen rækker
 ikke til at klone repoet og køre modellen. Kodekørsel skal være slået til under
-indstillingerne, og netværksadgangen skal nå github.com. [BEKRÆFT efter K1]
+indstillingerne, og netværksadgangen skal nå github.com. Testet fra en ny, ren Pro-konto 19. oktober 2026.
 
 ## Hurtig opsætning
 
@@ -27,8 +27,11 @@ indstillingerne, og netværksadgangen skal nå github.com. [BEKRÆFT efter K1]
    - *"Slå tankene fra, kør vinduet igen, og vis mig forskellen i objektivet."*
    - *"Hvad sker der, hvis halmprisen stiger til 400 kr/MWh?"*
 
-3. **Dit eget værk.** Vedhæft dit udfyldte regneark og bed Claude lægge det i
-   `deltagere/` og konvertere det med `scripts/vaerksark_til_yaml.py`. Se
+3. **Dit eget værk.** Har du fået en zip-fil med dit værk (fx på kurset), så
+   vedhæft den, ikke regnearket, og bed Claude pakke den ud og følge
+   `deltagere/LAESMIG_<værk>.md`. Uden zip-fil: vedhæft dit udfyldte regneark og
+   bed Claude lægge det i `deltagere/` og konvertere det med
+   `scripts/vaerksark_til_yaml.py`. Se
    [`EGET_VAERK.md`](EGET_VAERK.md). Dit ark bliver i din egen session og
    kan ikke committes til repoet.
 
