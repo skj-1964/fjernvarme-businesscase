@@ -15,10 +15,14 @@ sub-interval τ når den realiserede aktiveringspris clearer buddet:
 
 Aktiveringsværdi-koefficienten per time t (DKK pr. reserveret MW pr. time):
 
-    av(t) = Σ_{τ ∈ t}  Δτ · 1[ p_act(τ) ≥ spot(τ) + markup ] · ( p_act(τ) + spot(τ) + el_cost_flat )
+    av(t) = Σ_{τ ∈ t}  Δτ · 1[ p_act(τ) ≥ spot(τ) + markup ] · ( p_act(τ) + el_cost_flat )
 
-hvor (p_act + spot + el_cost_flat) er den fulde værdi pr. MWh op-reguleret el:
-aktiveringsprisen plus den sparede forbrugsomkostning (spot + tarif + elafgift),
+hvor (p_act + el_cost_flat) er den fulde værdi pr. MWh op-reguleret el:
+aktiveringsprisen plus den sparede tarif og elafgift. Spotprisen er IKKE en
+besparelse: strømmen er købt dagen før og betales, uanset om enheden stopper
+(bekræftet af Billund 19/10-2026: ved opregulering betales den bestilte strøm,
+og værket får opreguleringsprisen; tarif og afgift spares). Indtil 19/10-2026
+regnede modellen spotprisen med som sparet, hvilket overvurderede aktiveringen
 identisk med den gamle models pr.-MWh-værdi — kun aggregeringen ændres.
 
 Indikator og pris evalueres i SAMME sub-interval, så kovariansen fanges eksakt.
@@ -42,10 +46,10 @@ class ActivationValue:
     """Time-opløste serier udledt af sub-time-priser.
 
     av:             DKK pr. reserveret MW pr. time (BRUTTO indtægtskoefficient,
-                    p_act + spot + el_cost_flat — bruges uændret i objektivet)
+                    p_act + el_cost_flat — bruges uændret i objektivet)
     av_payment:     DKK pr. reserveret MW pr. time (NETTO aktiveringsbetaling,
                     kun p_act — samme aggregering og clearing som av, men uden
-                    forbrugsmodregningen spot + el_cost_flat). Diagnostik/
+                    forbrugsmodregningen el_cost_flat). Diagnostik/
                     rapportering; objektivet rører den ikke.
     clear_fraction: andel af timen hvor buddet clearer [0,1] (varmeside-α)
     """
@@ -75,7 +79,7 @@ def compute_activation_value(
         spot:         spotpris [DKK/MWh], reindekseres til price_act's indeks
                       (forward-fill — spot er konstant inden for sit kvarter).
         markup:       budtillæg [DKK/MWh]. Op: spot + markup. Ned: spot − markup.
-        el_cost_flat: tarif + elafgift [DKK/MWh] (sparet forbrug udover spot).
+        el_cost_flat: tarif + elafgift [DKK/MWh] (sparet ved aktivering; spot er købt).
         dt_h:         sub-interval-længde i timer (0.25 for 15-min).
         direction:    "up" (clearer når p_act ≥ spot+markup) eller
                       "down" (clearer når p_act ≤ spot−markup).
@@ -124,10 +128,10 @@ def compute_activation_value(
         raise ValueError(f"ukendt aktiveringsmodel {model!r}")
 
     # Fuld (brutto) værdi pr. MWh op-reguleret el i de clearende intervaller.
-    value_per_mwh = p + s + el_cost_flat
+    value_per_mwh = p + el_cost_flat
     value_sub = dt_h * clears * value_per_mwh          # DKK pr. MW pr. sub-interval
     # Netto aktiveringsbetaling: kun aktiveringsprisen p, samme clearing/grid.
-    # Differensen (av − av_payment) = forbrugsmodregningen (spot + el_cost_flat).
+    # Differensen (av − av_payment) = forbrugsmodregningen (el_cost_flat).
     payment_sub = dt_h * clears * p                    # DKK pr. MW pr. sub-interval
     cleared_h_sub = dt_h * clears                      # aktiverede timer pr. sub-interval
 

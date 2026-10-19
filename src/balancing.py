@@ -104,7 +104,7 @@ class _MarketSpec:
     label: str
     # Nye serier til activation_value-metoden (forudberegnet i datalaget):
     #   av_key:          DKK pr. reserveret MW pr. time (BRUTTO indtægt;
-    #                    p_act + spot + el_cost_flat — bruges i objektivet)
+    #                    p_act + el_cost_flat — bruges i objektivet)
     #   act_payment_key: DKK pr. reserveret MW pr. time (NETTO aktiverings-
     #                    betaling; kun p_act). Diagnostik/rapportering.
     #   clear_key:       andel af timen hvor buddet clearer [0,1] (varmeside-α)
@@ -351,7 +351,7 @@ def _add_market_reserves(
         else:
             # Gammel (E[α]×E[p]): time-midlet α × time-midlet pris.
             #   varmereduktion = α · COP · r
-            #   indtægt = α · (π_act + spot + tarif + afgift) · r
+            #   indtægt = α · (π_act + tarif + afgift) · r
             heat_reduction_terms.append(alpha * cop * r)
             activation_revenue_terms.append(
                 (alpha * (price_act + el_cost_per_mwh) * r).sum()
@@ -887,10 +887,10 @@ def add_balancing_reserves(
         return None
 
     # Forbrugsside-omkostning der spares ved op-regulering (aktivering NED af
-    # el-forbrug) — fælles for aFRR og mFRR.
+    # el-forbrug) — fælles for aFRR og mFRR. Spotprisen er ikke med: strømmen
+    # er købt dagen før og betales, uanset om enheden stopper (19/10-2026).
     el_cost_per_mwh = (
-        data["spot_price"]
-        + resolve_consumption_tariff(cfg, data)
+        resolve_consumption_tariff(cfg, data)
         + cfg.electricity.electricity_tax
     )
 
