@@ -51,15 +51,16 @@ en **kapacitetsdel** (`π_cap(t)·r`) og en **aktiveringsdel**.
 
 - **`activation_value` (anbefalet, kræver `bid_strategy`).** En
   aktiveringsværdi beregnes direkte fra kvarterpriserne:
-
+  
   ```
   av(t) = Σ_{τ ∈ t}  Δτ · f(τ) · ( p_act(τ) + spot(τ) + el_cost_flat )
   ```
-
+  
   Pris og aktivering evalueres i samme kvarter, så samvariationen fanges.
   Parentesen er den fulde værdi af én MWh op-reguleret el: aktiveringsprisen
   **plus** den sparede forbrugsomkostning (spot, tarif og elafgift).
   Aktiveringsindtægten forbliver lineær: `Σ_t av(t)·r(t)`.
+
 - **`legacy` — `E[α]×E[p]`.** Timegennemsnit gange timegennemsnit. Enkel, men
   undervurderer systematisk, når aktivering og pris hænger sammen inden for
   timen. Til sammenligning.
@@ -82,22 +83,22 @@ At buddet ligger i merit, er ikke det samme som at det aktiveres. Blokken
 styrer, hvor stor en andel `f(τ)` af den reserverede MW der regnes aktiveret i
 et kvarter:
 
-| model | f(τ) |
-|---|---|
-| `clear` (standard) | `1[p ≥ bud]`. Gav 4–5 gange for meget aktiveret energi mod Billunds afregning. |
-| `system_share` | `1[p ≥ bud] · min(1, k·α(τ))`, α = systemets aktiverede volumen / indkøbt kapacitet |
-| `ramp` | `min(1, max(0, (p − bud) / ramp_dkk_mwh))` |
+| model              | f(τ)                                                                                |
+| ------------------ | ----------------------------------------------------------------------------------- |
+| `clear` (standard) | `1[p ≥ bud]`. Gav 4–5 gange for meget aktiveret energi mod Billunds afregning.      |
+| `system_share`     | `1[p ≥ bud] · min(1, k·α(τ))`, α = systemets aktiverede volumen / indkøbt kapacitet |
+| `ramp`             | `min(1, max(0, (p − bud) / ramp_dkk_mwh))`                                          |
 
 `activation.foresight` vælger, hvad optimeringen ved om aktiveringen, når
 den reserverer. Kapacitetsbuddet afgives dagen før, så den realiserede
 aktivering er ikke kendt:
 
-| foresight | optimeringen ser | kigger frem |
-|---|---|---|
-| `realized` (standard) | den realiserede aktiveringsværdi | ja, fuldt |
-| `profile` | gennemsnit pr. kalendermåned og time på døgnet | delvist (resten af måneden) |
-| `trailing30` | gennemsnit af samme time de seneste 30 døgn før i dag | nej |
-| `lag24` / `lag168` | samme time i går / sidste uge | nej |
+| foresight             | optimeringen ser                                      | kigger frem                 |
+| --------------------- | ----------------------------------------------------- | --------------------------- |
+| `realized` (standard) | den realiserede aktiveringsværdi                      | ja, fuldt                   |
+| `profile`             | gennemsnit pr. kalendermåned og time på døgnet        | delvist (resten af måneden) |
+| `trailing30`          | gennemsnit af samme time de seneste 30 døgn før i dag | nej                         |
+| `lag24` / `lag168`    | samme time i går / sidste uge                         | nej                         |
 
 `activation.settle` afgør, hvad tallet afregnes på. `forecast` (standard)
 rapporterer prognosens værdi. `realized` løser først på prognosen, låser
@@ -111,13 +112,13 @@ Valget af budstrategi og profiler til eget værk:
 
 ## Spor A og Spor B
 
-| | Spor A — normativ | Spor B — beskrivende |
-|---|---|---|
-| case | `billund_sporA.yaml` (marts–juni 2026), `billund_sporA_rullende.yaml` (jul 2025–jun 2026) | `billund_sporB.yaml` (marts–juni 2026) |
-| spørgsmål | Hvad *kunne* værket tjene med fuld tilgængelighed? | Hvad gav modellen med den reservation, værket faktisk stillede til rådighed? |
-| reservation | frit inden for lofterne og en kapacitetsprisgate (`reservation_gate`, `mode: bound`) | loftet `availability` med Billunds reserverede MW pr. måned; gaten er slået fra |
-| aktivering | `clear` | aFRR `system_share` (k = 4), mFRR `clear`, `foresight: profile` |
-| brug | **øvre grænse**, ikke en prognose | validering mod afregning; forudsiger ikke |
+|             | Spor A — normativ                                                                         | Spor B — beskrivende                                                            |
+| ----------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| case        | `billund_sporA.yaml` (marts–juni 2026), `billund_sporA_rullende.yaml` (jul 2025–jun 2026) | `billund_sporB.yaml` (marts–juni 2026)                                          |
+| spørgsmål   | Hvad *kunne* værket tjene med fuld tilgængelighed?                                        | Hvad gav modellen med den reservation, værket faktisk stillede til rådighed?    |
+| reservation | frit inden for lofterne og en kapacitetsprisgate (`reservation_gate`, `mode: bound`)      | loftet `availability` med Billunds reserverede MW pr. måned; gaten er slået fra |
+| aktivering  | `clear`                                                                                   | aFRR `system_share` (k = 4), mFRR `clear`, `foresight: profile`                 |
+| brug        | **øvre grænse**, ikke en prognose                                                         | validering mod afregning; forudsiger ikke                                       |
 
 ### Kapacitetsprisgaten (`reservation_gate`)
 
@@ -209,7 +210,7 @@ python scripts/capture_rate.py <dispatch.nc> --case cases/billund_sporB.yaml \
 Brug den splejsede varmelast; `data/billund_abvaerk_hourly.csv` har 161
 manglende timer i vinduet. Facit er Billunds afregning og ligger ikke i repoet.
 
-Resultatet er **121 %** af det realiserede (aFRR 108 %, mFRR 132 %). Læs det
+Resultatet er **120 %** af det realiserede (aFRR 109 %, mFRR 129 %). Læs det
 med disse forbehold:
 
 - Kalibreringen gælder kun marts–juni 2026 og kun med Billunds reservation pr.
