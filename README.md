@@ -17,6 +17,15 @@ første gang, du møder modellen. Rapport v3 (april 2026) og dens figurer
 ligger i [`doc/arkiv/`](doc/arkiv/) som historik; tal og kommandoer dér gælder
 ikke længere.
 
+> **Nye spotpriser fra 3. november 2026.** Modellen regner nu spotprisen som
+> middel af timens fire kvarterer. Før tog den kun timens første kvarter. Det
+> ændrer alle resultater, der omfatter perioden fra 1. oktober 2025, også
+> januar–juni 2026 og de rullende år. Perioder før 1. oktober 2025 er uændrede.
+>
+> Referencetallene nedenfor, tallene i `doc/` og rapport v4 samt kontroltallene
+> i kursusmateriale og deltagerpakker er regnet før ændringen og opdateres
+> senere. Afviger dit resultat fra dem, er det derfor ikke en fejl.
+
 ---
 
 ## Til Claude: sådan forstås driftsfagligt sprog
