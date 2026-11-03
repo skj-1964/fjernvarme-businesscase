@@ -64,6 +64,35 @@ def make_time_index(cfg: CaseConfig) -> pd.DatetimeIndex:
 
 
 # ------------------------------------------------------------------------------
+# Spot paa modellens akse
+# ------------------------------------------------------------------------------
+
+def spot_paa_akse(spot_raw: pd.Series, idx: pd.DatetimeIndex) -> pd.Series:
+    """Spot paa modellens tidsakse: middel over hvert tidsskridt.
+
+    Spot er timepris frem til 2025-09-30 22:00 UTC og kvarterspris derefter.
+    Et anlaeg, der koerer jaevnt gennem timen, afregnes til middel af de fire
+    kvarterer, saa timeaksen maa ikke tage :00-kvarteret: det rammer ved siden
+    af paa morgen- og aftenrampen og puster doegnspaendet op.
+
+    Er aksen finere end kilden (15-min-akse i time-aeraen), fyldes prisen
+    frem, som den altid har gjort.
+    """
+    skridt = idx.freq if idx.freq is not None else idx[1] - idx[0]
+    grupper = spot_raw.groupby(spot_raw.index.floor(skridt))
+    antal = grupper.count()
+    # 1 = timepris, 4 = hel time af kvarterer. 2-3 er en halv time uden at det ses.
+    halve = antal[(antal > 1) & (antal < 4)]
+    halve = halve[(halve.index >= idx[0]) & (halve.index <= idx[-1])]
+    if len(halve):
+        raise CoverageError(
+            f"Spot: {len(halve)} tidsskridt har kun en del af deres kvarterer, "
+            f"foerste {halve.index[0]} ({int(halve.iloc[0])} kvarterer)."
+        )
+    return grupper.mean().reindex(idx).ffill().bfill()
+
+
+# ------------------------------------------------------------------------------
 # Dækningsvagt
 # ------------------------------------------------------------------------------
 
@@ -1074,12 +1103,12 @@ def load_external_data(
     )
 
     # Reindeks til modellens akse. Temperatur er fysisk — interpolér over huller.
-    # Spot er et fast hourly clearing-signal — forward-fill over (sjældne) huller.
+    # Spot midles over tidsskridtet (kvarterspriser fra okt. 2025), se spot_paa_akse.
     t_ambient = (
         t_raw.reindex(idx.union(t_raw.index)).sort_index()
              .interpolate(method="time").reindex(idx).ffill().bfill()
     )
-    spot = spot_raw.reindex(idx).ffill().bfill()
+    spot = spot_paa_akse(spot_raw, idx)
 
     load_df = synthesize_heat_load(t_ambient, heat_load)
 

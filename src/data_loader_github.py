@@ -48,6 +48,7 @@ from .data_loader import (
     apply_heat_csv_override,
     assert_coverage,
     make_time_index,
+    spot_paa_akse,
     synthesize_heat_load,
 )
 
@@ -67,7 +68,9 @@ DEFAULT_DF_DATA_CACHE = "data/df-data"
 #   afrr, mfrr_cap        3600 s hele levetiden          → 1
 #   dmi                   3600 s hele levetiden          → 1
 #   spot                  3600 s → 900 s (2025-09-30 22:00); timesbuckets
-#                         gør skiftet ligegyldigt        → 1
+#                         gør skiftet ligegyldigt for
+#                         DÆKNINGEN (ikke for prisen, se
+#                         spot_paa_akse)                 → 1
 #   imbalance, mfrr_act   900 s hele levetiden           → 4
 #
 # 4 for de to 15-min-datasæt, fordi fetch_balance_prices_github efterfølgende
@@ -651,12 +654,12 @@ def load_external_data_github(
     )
 
     # Reindeks til modellens akse — samme logik som load_external_data:
-    # temperatur interpoleres, spot forward-fyldes.
+    # temperatur interpoleres, spot midles over tidsskridtet.
     t_ambient = (
         t_raw.reindex(idx.union(t_raw.index)).sort_index()
              .interpolate(method="time").reindex(idx).ffill().bfill()
     )
-    spot = spot_raw.reindex(idx).ffill().bfill()
+    spot = spot_paa_akse(spot_raw, idx)
 
     load_df = synthesize_heat_load(t_ambient, heat_load)
 
