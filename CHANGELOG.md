@@ -12,6 +12,29 @@ Hvert punkt har en linje **Flytter tal**:
 
 Beløb er objektiv i kr.
 
+## Ikke udgivet
+
+### Oliekedel som enhedstype
+
+Ny enhedstype `oil_boiler` med brændslet `fuel_oil` (fyringsolie eller
+gasolie). Prisen sættes i `prices.fuel_oil` pr. MWh olie inkl. energiafgift.
+Den fysiske udledning er 0,266 t CO2 pr. MWh olie (74 kg/GJ, Energistyrelsens
+standardfaktor); ved tung fuelolie rettes `co2_emissions_per_mwh_fuel` til ca.
+0,28 i casefilen. CO2 behandles som for naturgas: én CO2-pris for værket.
+
+Værksarket har fået rækken `fyringsolie` på arket Priser (række 10), og typen
+`oil_boiler` kan vælges i Anlaeg. Mangler olieprisen eller CO2-prisen med en
+oliekedel i arket, stopper konverteringen med en besked på dansk.
+
+**Flytter tal:** nej. Ingen eksisterende case har en oliekedel. Andeby 5.–6.
+januar 2026 med `--mip-gap 0.0002 --mip-abs-gap 100`: 866.568 før og efter.
+
+**Kræver noget af brugerne:** Priser-arket i `vaerksdata_skabelon.xlsx` har
+fået en række mere, så alt fra CO2-rækken og ned er rykket én række (DMI-område
+B28 → B29, priszone B29 → B30). Konverteringen læser på etiketter, så et
+værksark fra før kan stadig bruges uændret og giver samme casefil. Programmer,
+der skriver i bestemte celler i skabelonen, skal opdateres.
+
 ## 0.10.0 (18. november 2026)
 
 ### Læs og skriv tekstfiler som UTF-8

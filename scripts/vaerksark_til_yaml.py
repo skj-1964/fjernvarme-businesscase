@@ -25,7 +25,7 @@ casefilen, og varmelasten syntetiseres af modellen ud fra DMI-vejrdata.
 
 Arket Priser læses på etiketterne i kolonne A, ikke på rækkenumre: rækker
 må indsættes og flyttes, men posterne må ikke omdøbes. Brændselsblokken
-kender naturgas, halm, træpiller, flis, overskudsvarme og CO2.
+kender naturgas, fyringsolie, halm, træpiller, flis, overskudsvarme og CO2.
 
 Tre ting er valgfrie og findes ikke i skabelon v4:
   * Anlaeg, kolonne N 'brændsel': halm, træpiller eller flis pr.
@@ -77,10 +77,19 @@ BRAENDSEL_PR_TYPE = {
     "biomass_boiler": None,       # afgøres af halm/flis-pris, se nedenfor
     "gas_boiler": "natural_gas",
     "gas_engine_chp": "natural_gas",
+    "oil_boiler": "fuel_oil",
     "solar_thermal": "solar",
     "waste_heat": "waste_heat",
 }
 GYLDIGE_TYPER = set(BRAENDSEL_PR_TYPE)
+
+# Fysisk CO2-udledning pr. MWh brændsel (nedre brændværdi). Modellen ganger
+# med CO2-prisen fra arket Priser. Naturgas 0,2 t/MWh (som hidtil); fyringsolie
+# og gasolie 74 kg CO2/GJ = 0,266 t/MWh (Energistyrelsens standardfaktor).
+# Fyrer kedlen med tung fuelolie (ca. 0,28 t/MWh), så ret tallet i casefilen.
+CO2_PR_MWH_BRAENDSEL = {
+    "gas_boiler": 0.2, "gas_engine_chp": 0.2, "oil_boiler": 0.266,
+}
 
 # Biomassebrændsler: arkets ord -> modellens nøgle under prices.
 BIOMASSE = {"halm": "straw", "træpiller": "wood_pellets", "flis": "flis"}
@@ -89,6 +98,7 @@ BIOMASSE_DANSK = {v: k for k, v in BIOMASSE.items()}
 # en gaskedel, der står til flis, er en fejl i arket og ikke noget at tie om).
 BRAENDSEL_ORD = {
     "gas_boiler": {"naturgas", "gas"}, "gas_engine_chp": {"naturgas", "gas"},
+    "oil_boiler": {"olie", "fyringsolie", "gasolie"},
     "heat_pump": {"el"}, "electric_boiler": {"el"},
     "solar_thermal": {"sol", "solvarme"}, "waste_heat": {"overskudsvarme"},
 }
@@ -741,11 +751,18 @@ def laes_enheder(sti: Path, priser: dict,
             print(f"    Række {raekke}: '{r['navn']}' får {tillaeg:.2f} kr/MWh varme "
                   f"lagt på D&V for afgifter, der kun gælder {hvem}.")
 
-        if type_ in ("gas_boiler", "gas_engine_chp") and "co2_eua" not in priser:
+        if type_ in CO2_PR_MWH_BRAENDSEL and "co2_eua" not in priser:
+            hvad = "olie" if type_ == "oil_boiler" else "gas"
             raise ArkFejl(
-                f"Række {raekke}: '{r['navn']}' bruger gas, men CO2-cellen på "
-                "arket Priser er tom. Indeholder gasprisen allerede "
+                f"Række {raekke}: '{r['navn']}' bruger {hvad}, men CO2-cellen på "
+                f"arket Priser er tom. Indeholder {hvad}prisen allerede "
                 "CO2-afgiften, så skriv 0; ellers skriv CO2-prisen i kr pr. ton.")
+
+        if type_ == "oil_boiler" and not priser.get("fuel_oil"):
+            raise ArkFejl(
+                f"Række {raekke}: '{r['navn']}' er en oliekedel, men prisen for "
+                "fyringsolie er ikke udfyldt på arket Priser. Skriv prisen pr. "
+                "MWh olie inkl. energiafgift. CO2 behandles som for naturgas.")
 
         if type_ == "waste_heat" and not priser.get("waste_heat"):
             raise ArkFejl(
@@ -843,8 +860,8 @@ def laes_enheder(sti: Path, priser: dict,
 
         else:
             u["alpha"] = 0.0
-        if type_ in ("gas_boiler", "gas_engine_chp"):
-            u["co2_emissions_per_mwh_fuel"] = 0.2
+        if type_ in CO2_PR_MWH_BRAENDSEL:
+            u["co2_emissions_per_mwh_fuel"] = CO2_PR_MWH_BRAENDSEL[type_]
 
         # Unit commitment kun hvor det betyder noget: enheder med en reel
         # minimumslast eller en bindende driftstid.
@@ -1193,9 +1210,11 @@ def laes_priser(sti: Path) -> tuple[dict, dict, dict]:
             i += 1
 
     navne = {"naturgas": "natural_gas", "halm": "straw", "træpiller": "wood_pellets",
-             "flis": "flis", "overskudsvarme": "waste_heat"}
+             "flis": "flis", "overskudsvarme": "waste_heat",
+             "fyringsolie": "fuel_oil", "gasolie": "fuel_oil", "olie": "fuel_oil"}
     # CO2 opgives pr. ton CO2. Modellen ganger selv med enhedens
-    # co2_emissions_per_mwh_fuel (0,2 t CO2 pr. MWh naturgas), så et tal pr.
+    # co2_emissions_per_mwh_fuel (0,2 t CO2 pr. MWh naturgas, 0,266 pr. MWh
+    # fyringsolie), så et tal pr.
     # MWh gas her ville blive ganget med 0,2 én gang for meget.
     enheder = {"co2_eua": "DKK/t_CO2"}
     priser = {}
@@ -1205,7 +1224,7 @@ def laes_priser(sti: Path) -> tuple[dict, dict, dict]:
             raise ArkFejl(
                 f"Priser række {i + 1}: '{raa.iat[i, 0]}' står blandt "
                 "brændselspriserne, men er ikke et brændsel, konverteringen "
-                "kender (naturgas, halm, træpiller, flis, overskudsvarme, CO2). "
+                "kender (naturgas, fyringsolie, halm, træpiller, flis, overskudsvarme, CO2). "
                 "Gasafgifter og -tariffer hører til i blokken 'Gasafgifter og "
                 "gastariffer'. Er det et andet brændsel, så skriv til os.")
         if noegle in priser:
@@ -1559,7 +1578,7 @@ def main() -> int:
                 + ("ingen solvarmeenhed (type solar_thermal)." if not sol_enheder
                    else f"{len(sol_enheder)} solvarmeenheder. Arket kan kun "
                         "bruges, når der er præcis én — læg dem sammen i Anlaeg."))
-        # Ingen gasenhed (laes_enheder har ellers stoppet): CO2 spiller ingen
+        # Ingen gas- eller olieenhed (laes_enheder har ellers stoppet): CO2 spiller ingen
         # rolle, men casen skal have feltet for at kunne indlæses.
         priser.setdefault("co2_eua", {"value": 0.0, "unit": "DKK/t_CO2"})
         if vp_tabeller:

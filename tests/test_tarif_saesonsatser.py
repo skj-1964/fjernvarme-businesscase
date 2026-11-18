@@ -51,7 +51,7 @@ def _konverter_med(tmp_path, satser: dict[str, float | None]):
 
 def test_sommersatser_bruges(tmp_path):
     # vinter: lav 7,4  høj 14,8  spids 29,5  |  sommer: lav 5,0  høj 8,0
-    r, case = _konverter_med(tmp_path, {"C22": 5.0, "C23": 8.0})
+    r, case = _konverter_med(tmp_path, {"C23": 5.0, "C24": 8.0})
     s = _satser(case)
     fast = s["vinter_hverdag_03"] - 7.4          # Energinet + D&V + elafgift
     assert s["vinter_hverdag_10"] - fast == pytest.approx(29.5)
@@ -71,7 +71,7 @@ def test_ens_satser_giver_ingen_ekstra_baand(tmp_path):
 
 
 def test_kun_sommersats_gaelder_hele_aaret(tmp_path):
-    r, case = _konverter_med(tmp_path, {"B23": None, "C23": 12.0})
+    r, case = _konverter_med(tmp_path, {"B24": None, "C24": 12.0})
     s = _satser(case)
     fast = s["vinter_hverdag_03"] - 7.4
     assert s["vinter_hverdag_22"] - fast == pytest.approx(12.0)
@@ -80,7 +80,7 @@ def test_kun_sommersats_gaelder_hele_aaret(tmp_path):
 
 
 def test_sommerspidslast_bruges_ikke_og_siges(tmp_path):
-    r, case = _konverter_med(tmp_path, {"C24": 20.0})
+    r, case = _konverter_med(tmp_path, {"C25": 20.0})
     s = _satser(case)
     fast = s["vinter_hverdag_03"] - 7.4
     assert s["sommer_hverdag_10"] - fast == pytest.approx(14.8)

@@ -73,7 +73,7 @@ def test_skabelonens_dropdown_er_lig_config(tmp_path):
     ws = openpyxl.load_workbook(ark)["Priser"]
     lister = [dv.formula1.strip('"').split(",")
               for dv in ws.data_validations.dataValidation
-              if "B28" in str(dv.sqref)]
+              if "B29" in str(dv.sqref)]
     assert len(lister) == 1, "der skal være præcis én dropdown på DMI-feltet"
     assert set(lister[0]) == set(KENDTE_DMI_OMRAADER)
 

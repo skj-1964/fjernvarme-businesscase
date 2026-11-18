@@ -117,7 +117,7 @@ def test_ukendt_raekke_i_braendselsblokken_naevnes_med_raekke_og_tekst(tmp_path)
 
 def test_manglende_etiket_giver_besked_om_raekken(tmp_path):
     def uden_priszone(wb):
-        wb["Priser"]["A29"] = None
+        wb["Priser"]["A30"] = None
     r, case = _kør(tmp_path, uden_priszone)
     assert r.returncode != 0
     assert "priszone" in _ud(r) and "Traceback" not in r.stderr

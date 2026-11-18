@@ -36,7 +36,7 @@ def compute_marginal_cost(
     """
     Marginal omkostning per MWh varmeproduktion.
 
-    For brændselsenheder (halm, flis, gas):
+    For brændselsenheder (halm, flis, træpiller, gas, fyringsolie):
         mc = fuel_price / eta + CO2_cost + var_om − alpha × (spot − tariff_prod)
 
     For elforbrugende enheder (VP, elkedel):
@@ -89,11 +89,11 @@ def compute_marginal_cost(
         return xr.full_like(spot, cfg.prices.fuel_price(unit.fuel) + om)
 
     else:
-        # Brændselsenhed (halm, naturgas)
+        # Brændselsenhed (halm, flis, træpiller, naturgas, fyringsolie)
         fuel_price = cfg.prices.fuel_price(unit.fuel)
         fuel_cost = fuel_price / unit.eta_fuel_to_heat
 
-        # CO2-tillæg (kun naturgas har co2_emissions > 0)
+        # CO2-tillæg (naturgas og fyringsolie har co2_emissions > 0)
         co2_cost = (
             unit.co2_emissions_per_mwh_fuel
             * cfg.prices.co2_eua

@@ -18,7 +18,7 @@ from tests.test_cop_tabel import _byg_og_fyld, _konverter
 
 def _flis_og_co2_nul(wb):
     wb["Priser"]["B7"] = None            # ingen halm
-    wb["Priser"]["B10"] = 0              # gaspris inkl. CO2-afgift
+    wb["Priser"]["B11"] = 0              # gaspris inkl. CO2-afgift
 
 
 def test_ark_uden_halm_kan_koeres_af_load_case(tmp_path):
@@ -39,7 +39,7 @@ def test_halm_uden_pris_giver_klar_fejl_ikke_stille_nul(tmp_path):
 def test_co2_blank_med_gasenhed_stopper(tmp_path):
     def blank(wb):
         _flis_og_co2_nul(wb)
-        wb["Priser"]["B10"] = None
+        wb["Priser"]["B11"] = None
     r, case = _konverter(tmp_path, _byg_og_fyld(tmp_path, blank))
     assert r.returncode != 0
     assert case is None
@@ -50,7 +50,7 @@ def test_co2_blank_med_gasenhed_stopper(tmp_path):
 def test_co2_blank_uden_gasenhed_skrives_som_nul(tmp_path):
     def uden_gas(wb):
         _flis_og_co2_nul(wb)
-        wb["Priser"]["B10"] = None
+        wb["Priser"]["B11"] = None
         for r in (8, 9):                 # gaskedel og gasmotor
             for c in "ABCDEFGHIJKLM":
                 wb["Anlaeg"][f"{c}{r}"] = None

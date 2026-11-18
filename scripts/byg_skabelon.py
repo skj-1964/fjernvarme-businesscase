@@ -39,7 +39,8 @@ Bevarede cellepositioner (vaerksark_til_yaml.py afhænger af dem):
   Timedata!B2 tidszone, overskrift i række 5, data fra række 6.
   Anlaeg: overskrift i række 4, enheder i række 5-23, 13 kolonner.
   Anlaeg: tankoverskrift i række 51, tanke i række 52-57, 5 kolonner.
-  Priser: brændsler 6-10, faste led 14-17, bånd 22-24, B28/B29/B30.
+  Priser: brændsler 6-11, faste led 15-18, bånd 23-25, B29/B30/B31.
+  (Konverteringen læser Priser på etiketter; numrene er kun til orientering.)
 NYT felt: Timedata!B3.
 NYT ark (v4): Varmepumpe, overskrift i række 5, målepunkter fra række 6,
   kolonne A-D (navn, udetemperatur, varme, el). E er en COP-formel.
@@ -72,7 +73,7 @@ THIN = Side(style="thin", color="BFBFBF")
 BOX = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 
 ENHEDSTYPER = ["heat_pump", "electric_boiler", "biomass_boiler", "gas_boiler",
-               "gas_engine_chp", "solar_thermal", "waste_heat"]
+               "oil_boiler", "gas_engine_chp", "solar_thermal", "waste_heat"]
 
 
 def sat(ws, celle, vaerdi, font=BODY, fill=None, wrap=False, border=False):
@@ -325,6 +326,8 @@ forklar_type = [
     "Elkedel. Udfyld varme virkningsgrad (MWh varme pr. MWh el, typisk 0,98–0,99).",
     "Halm- eller fliskedel. Brændslet vælges efter, hvilken pris du har udfyldt.",
     "Gaskedel.",
+    "Oliekedel (fyringsolie/gasolie), typisk spids- eller reservelast. Udfyld "
+    "varme virkningsgrad og prisen for fyringsolie på arket Priser.",
     "Gasmotor med kraftvarme. Udfyld BÅDE varme virkningsgrad og "
     "elvirkningsgrad — begge pr. MWh brændsel. Modellen regner selv "
     "el-til-varme-forholdet ud.",
@@ -488,16 +491,19 @@ for i, (navn, pris, enhed, note) in enumerate([
     ("halm", 232.0, "kr/MWh", "Din indkøbspris ab værk."),
     ("flis", 232.0, "kr/MWh", "Har du både halm og flis, så udfyld begge."),
     ("overskudsvarme", 50.0, "kr/MWh", "Din afregningspris til leverandøren."),
+    ("fyringsolie", None, "kr/MWh", "Kun hvis I har en oliekedel. Pr. MWh olie "
+     "(ca. 10 kWh pr. liter), inkl. energiafgift. CO2 som for naturgas."),
     ("CO2-kvote eller CO2-afgift", 670.0, "kr/t CO2",
-     "90 EUR/t × 7,45 kr/EUR. Modellen ganger selv med 0,2 t CO2 pr. MWh gas."),
+     "90 EUR/t × 7,45 kr/EUR. Modellen ganger selv med 0,2 t CO2 pr. MWh gas "
+     "og 0,266 t pr. MWh fyringsolie."),
 ], start=6):
     sat(ws, f"A{i}", navn, BODY, border=True)
     sat(ws, f"B{i}", pris, INPUT_F, UDFYLD, border=True).number_format = "#,##0.00"
     sat(ws, f"C{i}", enhed, BODY, border=True)
     sat(ws, f"D{i}", note, BODY_I, border=True)
 
-sat(ws, "A12", "Elafgift og faste tarifled", H2)
-header_raekke(ws, 13, ["post", "kr/MWh", "", "note"], [30, 16, 12, 48])
+sat(ws, "A13", "Elafgift og faste tarifled", H2)
+header_raekke(ws, 14, ["post", "kr/MWh", "", "note"], [30, 16, 12, 48])
 for i, (navn, v, note) in enumerate([
     ("elafgift efter elvarmegodtgørelse", 4.0,
      "Det tal, I faktisk betaler — ikke den fulde sats."),
@@ -505,14 +511,14 @@ for i, (navn, v, note) in enumerate([
     ("netselskabets drift og vedligehold", 0.0, "Ofte nul. Skriv 0, ikke tomt."),
     ("indfødningstarif (hvis I leverer el)", 4.1,
      "Kun relevant med gasmotor eller anden elproduktion."),
-], start=14):
+], start=15):
     sat(ws, f"A{i}", navn, BODY, border=True)
     sat(ws, f"B{i}", v, INPUT_F, UDFYLD, border=True).number_format = "#,##0.00"
     sat(ws, f"C{i}", "", BODY, border=True)
     sat(ws, f"D{i}", note, BODY_I, border=True)
 
-sat(ws, "A19", "Tidsvarierende nettarif", H2)
-sat(ws, "A20",
+sat(ws, "A20", "Tidsvarierende nettarif", H2)
+sat(ws, "A21",
     "De tre bånd står på dit netselskabs prisblad, typisk som lavlast, højlast "
     "og spidslast. Har dit selskab andre navne eller flere bånd, så skriv dem, "
     "du har — resten kan stå tomme. Er satserne forskellige vinter og sommer, "
@@ -520,8 +526,8 @@ sat(ws, "A20",
     "følger inddelingen i noterne til højre. Bruger jeres netselskab andre "
     "tidspunkter — fx spidslast kl. 17–21 — så skriv jeres tidspunkter i "
     "mailen, når du sender arket.", BODY_I, wrap=True)
-ws.row_dimensions[20].height = 72
-header_raekke(ws, 21, ["bånd", "vinter (kr/MWh)", "sommer (kr/MWh)", "note"],
+ws.row_dimensions[21].height = 72
+header_raekke(ws, 22, ["bånd", "vinter (kr/MWh)", "sommer (kr/MWh)", "note"],
               [30, 16, 16, 48])
 for i, (navn, vinter, sommer, note) in enumerate([
     ("lavlast", 7.4, 7.4, "Kl. 00–06 alle dage. Om sommeren (april–september) "
@@ -530,34 +536,34 @@ for i, (navn, vinter, sommer, note) in enumerate([
                             "kl. 06–24 i weekenden. Sommer: kl. 06–24 på hverdage."),
     ("spidslast", 29.5, None, "Kun vinterhverdage kl. 06–21. Har I ikke "
                               "spidslast om sommeren, så lad cellen stå tom."),
-], start=22):
+], start=23):
     sat(ws, f"A{i}", navn, BODY, border=True)
     for kolonne, v in (("B", vinter), ("C", sommer)):
         sat(ws, f"{kolonne}{i}", v, INPUT_F, UDFYLD, border=True).number_format = "#,##0.00"
     sat(ws, f"D{i}", note, BODY_I, wrap=True, border=True)
-for r in (22, 23, 24):
+for r in (23, 24, 25):
     ws.row_dimensions[r].height = 30
 
-sat(ws, "A26", "Vejrstation, priszone og værkets navn", H2)
-header_raekke(ws, 27, ["felt", "værdi", "", "note"], [30, 16, 12, 48])
+sat(ws, "A27", "Vejrstation, priszone og værkets navn", H2)
+header_raekke(ws, 28, ["felt", "værdi", "", "note"], [30, 16, 12, 48])
 for i, (felt, vaerdi, note) in enumerate([
     ("nærmeste DMI-område", "karup",
      "Skriv præcis én af:  fyn   vestkyst   karup   ringsted. Vælg det "
      "område, der ligger nærmest værket. Øst for Storebælt: ringsted."),
     ("priszone", "DK1", "Skriv  DK1  vest for Storebælt, ellers  DK2"),
     ("værkets navn", "Andeby Fjernvarme", "Bruges som filnavn for din modelfil."),
-], start=28):
+], start=29):
     sat(ws, f"A{i}", felt, BODY, border=True)
     sat(ws, f"B{i}", vaerdi, INPUT_F, UDFYLD, border=True)
     sat(ws, f"C{i}", "", BODY, border=True)
     sat(ws, f"D{i}", note, BODY_I, border=True)
 
-ws["D28"].alignment = Alignment(wrap_text=True, vertical="top")
-ws.row_dimensions[28].height = 30
+ws["D29"].alignment = Alignment(wrap_text=True, vertical="top")
+ws.row_dimensions[29].height = 30
 
 DMI_OMRAADER = ["fyn", "vestkyst", "karup", "ringsted"]
-dropdown(ws, DMI_OMRAADER, "B28", "DMI-område")
-dropdown(ws, ["DK1", "DK2"], "B29", "Priszone")
+dropdown(ws, DMI_OMRAADER, "B29", "DMI-område")
+dropdown(ws, ["DK1", "DK2"], "B30", "Priszone")
 
 # Skriver som standard skabelonen dér, hvor vaerksark_til_yaml.py's docstring
 # siger den ligger — doc/ i repoets rod, uanset hvor scriptet kaldes fra.

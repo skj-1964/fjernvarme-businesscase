@@ -28,9 +28,12 @@ referencecases som Andeby, aldrig til en andens data.
 - Er Timedata tom, men B3 udfyldt, skrives kun casefilen, og modellen
   syntetiserer varmelasten ud fra DMI-vejret.
 
-**Anlaeg.** Produktionsenheder og akkumuleringstanke. Alle syv enhedstyper kan
+**Anlaeg.** Produktionsenheder og akkumuleringstanke. Alle otte enhedstyper kan
 bruges: `heat_pump`, `electric_boiler`, `biomass_boiler`, `gas_boiler`,
-`gas_engine_chp`, `solar_thermal` og `waste_heat`. De grå rækker er eksempler:
+`oil_boiler`, `gas_engine_chp`, `solar_thermal` og `waste_heat`. En oliekedel
+(`oil_boiler`) fyrer med fyringsolie eller gasolie og regnes med 0,266 t CO2
+pr. MWh olie; fyrer den med tung fuelolie, så ret
+`co2_emissions_per_mwh_fuel` til ca. 0,28 i casefilen. De grå rækker er eksempler:
 slet dem, du ikke har, eller skriv hen over. Overskrifterne (`navn` over
 enhederne, `tank` over tankene) skal blive stående; konverteringen finder
 blokkene på dem. Formler skal have en beregnet værdi (gem arket i Excel), ellers
@@ -45,8 +48,12 @@ COP ved 0 °C fra Anlaeg og en lineær kurve, og konverteringen siger det. Se
 (vinter oktober–marts, sommer april–september), DMI-område og priszone. Arket
 læses på **etiketterne i kolonne A**: rækker må indsættes og flyttes, men
 posterne må ikke omdøbes. En ukendt række blandt brændslerne stopper
-konverteringen med rækkenummer og tekst. Brændslerne er naturgas, halm,
-træpiller, flis, overskudsvarme og CO2.
+konverteringen med rækkenummer og tekst. Brændslerne er naturgas, fyringsolie
+(også skrevet `gasolie` eller `olie`), halm, træpiller, flis, overskudsvarme og
+CO2. Fyringsolien opgives pr. MWh olie (ca. 10 kWh pr. liter) inkl.
+energiafgift. CO2 følger samme regel som for naturgas: der er én CO2-pris for
+værket, så er CO2-afgiften med i gasprisen og CO2-rækken sat til 0, skal den
+også være med i olieprisen.
 
 DMI-området vælges efter beliggenhed: `vestkyst`, `karup` (Midt- og
 Vestjylland), `fyn` eller `ringsted` (Sjælland og øerne). Se stationerne i
