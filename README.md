@@ -182,7 +182,7 @@ for vinduet i casen.
 
 | case | vindue | objektiv | kommando |
 |---|---|---:|---|
-| Spor A-anker | 2. marts–23. juni 2026 ¹ | **5.069.729** | `python run_case.py cases/billund_sporA.yaml --data-source github --with-balancing` |
+| Spor A-anker | 2. marts–23. juni 2026 ¹ | **5.204.555** ³ | `python run_case.py cases/billund_sporA.yaml --data-source github --with-balancing` |
 | Spor B | 2. marts–30. juni 2026 | **4.204.128** | `python run_case.py cases/billund_sporB.yaml --data-source github --with-balancing --heat-csv data/billund_abvaerk_hourly_splejset_jun2026.csv` |
 | Billund rullende år | jul 2025–jun 2026 | **21.773.827** | `python run_case.py cases/billund_sporA_rullende.yaml --data-source github --with-balancing --heat-csv data/billund_abvaerk_hourly_splejset_jun2026.csv` |
 | Andeby helår, med balancering | jul 2025–jun 2026 | **24.188.471** ² | `python run_case.py cases/andeby.yaml --data-source github --with-balancing` |
@@ -191,6 +191,8 @@ for vinduet i casen.
 ¹ Spor A slutter 23. juni, fordi ankeret er regnet, før varmelasten for den sidste uge af juni blev splejset ind; Spor B og de rullende år går til 30. juni.
 
 ² Optimal inden for casens gab (0,1 %).
+
+³ Regnet igen 18. november 2026 på `3cf753a` efter spotrettelsen (`5021a5e`). Før rettelsen: 5.069.729. De andre tal i tabellen er fra før rettelsen.
 
 Alle er optimale inden for casens gab. På en sandkasse med to kerner tog
 Spor A og Spor B 2–3 minutter og Billunds rullende år ca. 8 minutter. På en pc

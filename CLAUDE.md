@@ -27,13 +27,14 @@ Spot er kvarterspris fra 1. oktober 2025 dansk tid (2025-09-30 22:00 UTC). På
 - Skriv ikke gamle tal ind i nye dokumenter eller svar uden at sige, at de er fra
   før rettelsen.
 
-**Kontroltal efter rettelsen (5021a5e, juli 2025–juni 2026)**
+**Kontroltal efter rettelsen (5021a5e)**
 
-| Kørsel | Objektiv (kr.) |
-|---|---:|
-| Andeby, kun spot | 30.495.431 |
-| Billund i dag, kun spot | 26.777.743 |
-| Billund i dag, faktisk marked | 11.378.359 |
+| Kørsel | Periode | Objektiv (kr.) |
+|---|---|---:|
+| Spor A-anker, med balancering (`3cf753a`) | 2. marts–23. juni 2026 | 5.204.555 |
+| Andeby, kun spot | juli 2025–juni 2026 | 30.495.431 |
+| Billund i dag, kun spot | juli 2025–juni 2026 | 26.777.743 |
+| Billund i dag, faktisk marked | juli 2025–juni 2026 | 11.378.359 |
 
 Andre referencetal er ikke regnet igen efter rettelsen.
 
