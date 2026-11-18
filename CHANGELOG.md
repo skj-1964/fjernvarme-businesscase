@@ -12,7 +12,7 @@ Hvert punkt har en linje **Flytter tal**:
 
 Beløb er objektiv i kr.
 
-## Ikke udgivet
+## 0.11.0 (18. november 2026)
 
 ### Oliekedel som enhedstype
 
