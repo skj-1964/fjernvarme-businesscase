@@ -54,7 +54,7 @@ for f in sorted((maal / "spot").glob(f"{a.zone}_*.csv")):
 
 (maal / "SPOTSCENARIE.json").write_text(json.dumps(
     {"navn": a.navn, "zone": a.zone, "niveau": a.niveau, "spredning": a.spredning,
-     "kilde": str(kilde), "filer": rapport}, indent=2, ensure_ascii=False))
+     "kilde": str(kilde), "filer": rapport}, indent=2, ensure_ascii=False), encoding="utf-8")
 print(f"Scenarie skrevet til {maal}")
 for r in rapport:
     if r["kolonne"] == "spot_price_dkk":

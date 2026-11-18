@@ -20,13 +20,13 @@ CASE = "cases/billund_sporA.yaml"
 
 
 def _case_med_solver(blok):
-    raw = yaml.safe_load(Path(CASE).read_text())
+    raw = yaml.safe_load(Path(CASE).read_text(encoding="utf-8"))
     if blok is None:
         raw.pop("solver", None)
     else:
         raw["solver"] = blok
     p = Path(tempfile.mkdtemp()) / "case.yaml"
-    p.write_text(yaml.safe_dump(raw, allow_unicode=True))
+    p.write_text(yaml.safe_dump(raw, allow_unicode=True), encoding="utf-8")
     return str(p)
 
 

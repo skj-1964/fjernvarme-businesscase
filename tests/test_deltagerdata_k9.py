@@ -102,7 +102,7 @@ def test_uden_ignore_linjen_stoppes_standarden(repo, udfyldt_ark):
     """Vagten stoler ikke på mappenavnet, men på git. Fjernes linjen i
     .gitignore, er deltagere/ ikke længere sikker — og så stopper den."""
     gi = repo / ".gitignore"
-    gi.write_text(gi.read_text().replace("/deltagere/\n", ""))
+    gi.write_text(gi.read_text(encoding="utf-8").replace("/deltagere/\n", ""), encoding="utf-8")
     ark = shutil.copy(udfyldt_ark, repo / "vaerk_udenfor.xlsx")
     r = _kør(repo, Path(ark))
     assert r.returncode == 1

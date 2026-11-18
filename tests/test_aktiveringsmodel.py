@@ -93,13 +93,13 @@ def test_ukendt_model_fejler():
 # --- Konfigurationen ---------------------------------------------------------
 
 def _case_med(balancing_tillaeg: str, method: str | None = None) -> str:
-    tekst = BASE.read_text()
+    tekst = BASE.read_text(encoding="utf-8")
     tekst = tekst.replace("balancing:\n", "balancing:\n" + balancing_tillaeg, 1)
     if method is not None:
         tekst = re.sub(r"^  method: .*$", f"  method: {method}", tekst,
                        count=1, flags=re.M)
     p = Path(tempfile.mkdtemp()) / "case.yaml"
-    p.write_text(tekst)
+    p.write_text(tekst, encoding="utf-8")
     return str(p)
 
 

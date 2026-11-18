@@ -246,7 +246,7 @@ def test_flad_kontrolprofil_giver_den_flade_vaerdi(tmp_path):
     """
     import yaml
 
-    raw = yaml.safe_load((CASES / "billund_sporB.yaml").read_text())
+    raw = yaml.safe_load((CASES / "billund_sporB.yaml").read_text(encoding="utf-8"))
     raw["electricity"]["tariff_consumption"] = {
         "unit": "kr_per_mwh",
         "source": "regressionskontrol — flad 128,2",
@@ -268,7 +268,7 @@ def test_flad_kontrolprofil_giver_den_flade_vaerdi(tmp_path):
         },
     }
     sti = tmp_path / "flad.yaml"
-    sti.write_text(yaml.safe_dump(raw, allow_unicode=True))
+    sti.write_text(yaml.safe_dump(raw, allow_unicode=True), encoding="utf-8")
 
     cfg = load_case(str(sti))
     serie = resolve_consumption_tariff(cfg, _dataset("2026-03-01", 24 * 40))

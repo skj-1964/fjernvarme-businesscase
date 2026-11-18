@@ -211,7 +211,7 @@ def modul_tmp(tmp_path_factory):
 def test_skabelonens_eksempel_giver_tabel(modul_tmp):
     r, case = _konverter(modul_tmp, _byg_og_fyld(modul_tmp))
     assert r.returncode == 0, r.stderr
-    vp = yaml.safe_load(case.read_text())["units"]["varmepumpe"]
+    vp = yaml.safe_load(case.read_text(encoding="utf-8"))["units"]["varmepumpe"]
     assert vp["cop_curve"]["type"] == "table"
     assert [p["t_ambient"] for p in vp["cop_curve"]["points"]] == [-10, 0, 16]
     assert vp["p_max_heat"] == pytest.approx(5.2)      # tom i Anlaeg → tabellens maks
@@ -230,7 +230,7 @@ def test_uden_maalepunkter_falder_tilbage_paa_cop(tmp_path):
     r, case = _konverter(tmp_path, _byg_og_fyld(tmp_path, uden))
     assert r.returncode == 0, r.stderr
     assert "overvurderer eloptaget i kulde" in r.stdout
-    vp = yaml.safe_load(case.read_text())["units"]["varmepumpe"]
+    vp = yaml.safe_load(case.read_text(encoding="utf-8"))["units"]["varmepumpe"]
     assert vp["cop_curve"]["type"] == "linear"
 
 
@@ -242,7 +242,7 @@ def test_ark_fra_foer_v4_uden_varmepumpeark(tmp_path):
 
     r, case = _konverter(tmp_path, _byg_og_fyld(tmp_path, gammelt))
     assert r.returncode == 0, r.stderr
-    assert yaml.safe_load(case.read_text())["units"]["varmepumpe"]["cop_curve"]["type"] == "linear"
+    assert yaml.safe_load(case.read_text(encoding="utf-8"))["units"]["varmepumpe"]["cop_curve"]["type"] == "linear"
 
 
 def test_navn_der_ikke_matcher_stopper(tmp_path):
@@ -283,4 +283,4 @@ def test_maks_varme_under_tabellen_advarer_med_graense(tmp_path):
     r, case = _konverter(tmp_path, _byg_og_fyld(tmp_path, typeskilt))
     assert r.returncode == 0, r.stderr
     assert "ADVARSEL" in r.stdout and "over ca. 0 °C" in r.stdout
-    assert yaml.safe_load(case.read_text())["units"]["varmepumpe"]["p_max_heat"] == 4.0
+    assert yaml.safe_load(case.read_text(encoding="utf-8"))["units"]["varmepumpe"]["p_max_heat"] == 4.0

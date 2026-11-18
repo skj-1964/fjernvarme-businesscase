@@ -34,7 +34,7 @@ def _flyt_tanke_med_tre_slettede_raekker(wb):
 def test_slettede_raekker_flytter_ikke_tankene_ud_af_syne(tmp_path):
     r, case = _kør(tmp_path, _flyt_tanke_med_tre_slettede_raekker)
     assert r.returncode == 0, r.stdout + r.stderr
-    raa = yaml.safe_load(case.read_text())
+    raa = yaml.safe_load(case.read_text(encoding="utf-8"))
     assert set(raa["storage"]) == {"tank_stor", "tank_lille"}
     assert "Enheder: 4" in r.stdout          # syv minus tre slettede
     load_case(str(case))
@@ -97,7 +97,7 @@ def test_formel_i_priser_uden_cachet_vaerdi_regnes_ud(tmp_path):
         wb["Priser"]["B8"] = "=65*3.6"
     r, case = _kør(tmp_path, formel)
     assert r.returncode == 0, r.stdout + r.stderr
-    assert yaml.safe_load(case.read_text())["prices"]["flis"]["value"] == pytest.approx(234)
+    assert yaml.safe_load(case.read_text(encoding="utf-8"))["prices"]["flis"]["value"] == pytest.approx(234)
 
 
 def test_formel_med_cellehenvisning_afvises_med_besked(tmp_path):
@@ -247,7 +247,7 @@ def test_brøkdele_af_en_time_rundes_op_og_casen_kan_indlæses(tmp_path):
         ws["K6"] = 0.5
     r, case = _kør(tmp_path, ret)
     assert r.returncode == 0, r.stdout + r.stderr
-    u = yaml.safe_load(case.read_text())["units"]["elkedel"]
+    u = yaml.safe_load(case.read_text(encoding="utf-8"))["units"]["elkedel"]
     assert u["min_uptime"] == 1 and u["min_downtime"] == 1
     load_case(str(case))                           # skal ikke kaste
 
@@ -258,4 +258,4 @@ def test_halve_timer_over_en_rundes_op(tmp_path):
         ws["J6"] = 2.5
     r, case = _kør(tmp_path, ret)
     assert r.returncode == 0, r.stdout + r.stderr
-    assert yaml.safe_load(case.read_text())["units"]["elkedel"]["min_uptime"] == 3
+    assert yaml.safe_load(case.read_text(encoding="utf-8"))["units"]["elkedel"]["min_uptime"] == 3

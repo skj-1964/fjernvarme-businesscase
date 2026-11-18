@@ -317,7 +317,7 @@ def main():
     }}
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_path, "w") as f:
+    with open(out_path, "w", encoding="utf-8") as f:
         yaml.dump(payload, f, default_flow_style=False, sort_keys=False,
                   allow_unicode=True)
     print(f"\nSkrevet: {out_path}")

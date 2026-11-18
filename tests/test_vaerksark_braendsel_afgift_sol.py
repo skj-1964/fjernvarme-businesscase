@@ -98,7 +98,7 @@ def test_indsatte_raekker_over_tarifblokken_flytter_ikke_tallene(tmp_path):
     _, ref = _kør(tmp_path / "ref")
     r, case = _kør(tmp_path / "ny", lambda wb: wb["Priser"].insert_rows(12, 2))
     assert r.returncode == 0, _ud(r)
-    a, b = (yaml.safe_load(c.read_text()) for c in (ref, case))
+    a, b = (yaml.safe_load(c.read_text(encoding="utf-8")) for c in (ref, case))
     for noegle in ("prices", "electricity", "data"):
         assert a[noegle] == b[noegle], noegle
 
@@ -139,7 +139,7 @@ def test_flis_og_pillekedel_faar_hver_sit_braendsel(tmp_path):
         _to_biomassekedler(wb)
     r, case = _kør(tmp_path, rediger)
     assert r.returncode == 0, _ud(r)
-    raa = yaml.safe_load(case.read_text())
+    raa = yaml.safe_load(case.read_text(encoding="utf-8"))
     assert raa["units"]["fliskedel"]["fuel"] == "flis"
     assert raa["units"]["pillekedel"]["fuel"] == "wood_pellets"
     assert "straw" not in raa["prices"]
@@ -171,7 +171,7 @@ def test_to_biomassepriser_uden_braendselskolonne_tier_ikke(tmp_path):
         wb["Priser"]["B8"] = 250.0
     r, case = _kør(tmp_path, flis_dyrere)
     assert r.returncode == 0, _ud(r)
-    assert yaml.safe_load(case.read_text())["units"]["halmkedel"]["fuel"] == "straw"
+    assert yaml.safe_load(case.read_text(encoding="utf-8"))["units"]["halmkedel"]["fuel"] == "straw"
     assert "ADVARSEL" in r.stdout and "halmkedel" in r.stdout
     assert "232" in r.stdout and "250" in r.stdout
 
@@ -207,7 +207,7 @@ def test_gasafgifter_fordeles_paa_kedler_og_motorer(tmp_path):
     _, ref = _kør(tmp_path / "ref")
     r, case = _kør(tmp_path / "ny", lambda wb: _gasafgifter(wb, AFGIFTER))
     assert r.returncode == 0, _ud(r)
-    a, b = (yaml.safe_load(c.read_text()) for c in (ref, case))
+    a, b = (yaml.safe_load(c.read_text(encoding="utf-8")) for c in (ref, case))
     # Fælles led lægges på gasprisen: 1,1 kr/m3 ved 11 kWh/m3 = 100 kr/MWh, plus 22.
     assert b["prices"]["natural_gas"]["value"] == pytest.approx(
         a["prices"]["natural_gas"]["value"] + 100.0 + 22.0)
@@ -240,7 +240,7 @@ def test_maalt_solprofil_bruges_i_stedet_for_syntese(tmp_path):
     sol = {}
     r, case = _kør(tmp_path, lambda wb: sol.update(gwh=_solark(wb)))
     assert r.returncode == 0, _ud(r)
-    u = yaml.safe_load(case.read_text())["units"]["solvarme"]
+    u = yaml.safe_load(case.read_text(encoding="utf-8"))["units"]["solvarme"]
     assert u["production_profile_path"].endswith("_solvarme_maalt.csv")
     p = pd.read_csv(u["production_profile_path"], parse_dates=["time"])
     assert p["power_mw"].sum() / 1000 == pytest.approx(sol["gwh"], rel=1e-6)
@@ -261,7 +261,7 @@ def test_solproduktion_om_natten_giver_advarsel(tmp_path):
 
 def test_uden_solark_bruges_syntesen_som_foer(tmp_path):
     r, case = _kør(tmp_path)
-    u = yaml.safe_load(case.read_text())["units"]["solvarme"]
+    u = yaml.safe_load(case.read_text(encoding="utf-8"))["units"]["solvarme"]
     assert u["production_profile_path"].endswith("_solvarme_profil.csv")
 
 

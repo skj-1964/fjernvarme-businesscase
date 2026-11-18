@@ -95,8 +95,8 @@ def test_kilden_aendres_ikke_og_maerkning_skrives(tmp_path):
     fb.byg(k, m, PER, REF)
     assert (k / "afrr" / "DK1_2025.csv").read_bytes() == foer
     assert (m / ".git").exists()
-    assert "FIKTIVT" in (m / "FIKTIVT_MARKED.md").read_text()
-    assert set(json.loads((m / "faktorer.json").read_text())["faktorer"]) == {
+    assert "FIKTIVT" in (m / "FIKTIVT_MARKED.md").read_text(encoding="utf-8")
+    assert set(json.loads((m / "faktorer.json").read_text(encoding="utf-8"))["faktorer"]) == {
         "aFRR-kapacitet", "mFRR-kapacitet", "aFRR-aktivering", "mFRR-aktivering"}
 
 

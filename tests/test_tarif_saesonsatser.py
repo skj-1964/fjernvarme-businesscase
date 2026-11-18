@@ -65,7 +65,7 @@ def test_sommersatser_bruges(tmp_path):
 def test_ens_satser_giver_ingen_ekstra_baand(tmp_path):
     """Skabelonens eksempel (N1) har ens satser: casefilen skal se ud som før."""
     _, case = _konverter_med(tmp_path, {})
-    baand = yaml.safe_load(case.read_text())["electricity"]["tariff_consumption"][
+    baand = yaml.safe_load(case.read_text(encoding="utf-8"))["electricity"]["tariff_consumption"][
         "net_tariff"]["bands"]
     assert set(baand) == {"lav", "hoej", "spids"}
 

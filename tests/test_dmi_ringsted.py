@@ -46,7 +46,7 @@ def test_konverteren_accepterer_ringsted(tmp_path):
     ark = _byg_og_fyld(tmp_path, _saet_omraade("ringsted", "DK2"))
     r, case = _konverter(tmp_path, ark)
     assert r.returncode == 0, r.stdout + r.stderr
-    d = yaml.safe_load(case.read_text())
+    d = yaml.safe_load(case.read_text(encoding="utf-8"))
     assert d["data"]["dmi_area"] == "ringsted"
     assert d["data"]["price_zone"] == "DK2"
     cfg = load_case(str(case))                 # casen skal kunne indlæses

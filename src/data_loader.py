@@ -840,18 +840,18 @@ def load_heat_load_params(
 
     if override_yaml is not None:
         # Override-fil leverer kalibrerings-parametre (gaf, t_ref, baseline, …).
-        raw_override = yaml.safe_load(Path(override_yaml).read_text())
+        raw_override = yaml.safe_load(Path(override_yaml).read_text(encoding="utf-8"))
         section = dict(_extract_section(raw_override, str(override_yaml)))
 
         # Merge: nettab er driftskonfig (ikke kalibrerings-output), så hvis
         # override ikke har den, hent fra case YAML.
         if "nettab" not in section:
-            raw_case = yaml.safe_load(Path(case_yaml).read_text())
+            raw_case = yaml.safe_load(Path(case_yaml).read_text(encoding="utf-8"))
             case_section = _extract_section(raw_case, str(case_yaml))
             if "nettab" in case_section:
                 section["nettab"] = case_section["nettab"]
     else:
-        raw = yaml.safe_load(Path(case_yaml).read_text())
+        raw = yaml.safe_load(Path(case_yaml).read_text(encoding="utf-8"))
         section = _extract_section(raw, str(case_yaml))
 
     return HeatLoadParams.from_yaml_dict(section)

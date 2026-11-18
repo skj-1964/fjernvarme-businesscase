@@ -24,10 +24,10 @@ BASE = CASES / "billund_sporA.yaml"
 
 def _med_data_blok(blok: str) -> str:
     """Erstat data-blokken i referencecasen med `blok` (tom = fjernet)."""
-    tekst = BASE.read_text()
+    tekst = BASE.read_text(encoding="utf-8")
     ny = re.sub(r"^data:\n(?:  .*\n)+", blok, tekst, count=1, flags=re.M)
     p = Path(tempfile.mkdtemp()) / "case.yaml"
-    p.write_text(ny)
+    p.write_text(ny, encoding="utf-8")
     return str(p)
 
 
@@ -36,7 +36,7 @@ def _med_data_blok(blok: str) -> str:
 def test_alle_cases_har_data_blok():
     """Ingen case maa mangle blokken — den er ikke valgfri."""
     for sti in sorted(CASES.glob("*.yaml")):
-        if "\nunits:" not in sti.read_text():
+        if "\nunits:" not in sti.read_text(encoding="utf-8"):
             continue                      # params-fil, ikke en case
         cfg = load_case(str(sti))
         assert cfg.data.dmi_area

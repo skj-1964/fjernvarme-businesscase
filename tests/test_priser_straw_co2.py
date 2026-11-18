@@ -57,5 +57,5 @@ def test_co2_blank_uden_gasenhed_skrives_som_nul(tmp_path):
         wb["Priser"]["B6"] = None
     r, case = _konverter(tmp_path, _byg_og_fyld(tmp_path, uden_gas))
     assert r.returncode == 0, r.stdout + r.stderr
-    assert yaml.safe_load(case.read_text())["prices"]["co2_eua"]["value"] == 0
+    assert yaml.safe_load(case.read_text(encoding="utf-8"))["prices"]["co2_eua"]["value"] == 0
     load_case(str(case))

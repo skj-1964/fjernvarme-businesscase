@@ -25,9 +25,9 @@ SPOR_B = Path("cases") / "billund_sporB.yaml"
 
 
 def _case_med(balancing_tillaeg: str) -> str:
-    tekst = BASE.read_text().replace("balancing:\n", "balancing:\n" + balancing_tillaeg, 1)
+    tekst = BASE.read_text(encoding="utf-8").replace("balancing:\n", "balancing:\n" + balancing_tillaeg, 1)
     p = Path(tempfile.mkdtemp()) / "case.yaml"
-    p.write_text(tekst)
+    p.write_text(tekst, encoding="utf-8")
     return str(p)
 
 
